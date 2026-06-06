@@ -141,8 +141,10 @@ def compute_daily_pnl(start_date, end_date):
         gross = row.get('Gross Sales', ZERO)
         promos = row.get('Less: Promos & Discounts', ZERO)
         refunds = row.get('Less: Refunds', ZERO)
+        # GMV = Gross + Promos (post-discount, pre-refund). Matches TikTok portal definition.
+        # Net Revenue = GMV + Refunds (refunds are stored negative).
         if 'GMV' not in row:
-            row['GMV'] = gross + promos + refunds
+            row['GMV'] = gross + promos
         row['NET REVENUE'] = row['GMV'] + refunds
 
         # GROSS PROFIT
