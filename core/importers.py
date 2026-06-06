@@ -168,14 +168,13 @@ TYPE_TO_FIELD = {
 }
 
 def import_settlement(file_obj, filename=''):
-    # read_only=True has a known openpyxl bug (returns only some rows) — use normal mode.
-    # On Standard tier (1GB) we have plenty of RAM for full workbook load.
-    wb = openpyxl.load_workbook(file_obj, data_only=True, read_only=False)
-    ws_name = next((n for n in wb.sheetnames if n.lower().startswith('order')), wb.sheetnames[0])
-    ws = wb[ws_name]
-
-    header = [_clean_str(c) for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
-    h_lower = [h.lower() for h in header]
+    # Use pandas instead of openpyxl — read_only mode has a row-iteration bug,
+    # and full openpyxl load uses 500MB+ which OOMs even on Standard tier.
+    # pandas uses ~175MB for the same file. Read all columns as text to avoid type coercion.
+    import pandas as pd
+    df = pd.read_excel(file_obj, sheet_name=0, engine='openpyxl', dtype=str, keep_default_na=False)
+    header = list(df.columns)
+    h_lower = [str(h).strip().lower() for h in header]
     def col(name):
         try: return h_lower.index(name.lower())
         except ValueError: return -1
@@ -220,7 +219,8 @@ def import_settlement(file_obj, filename=''):
             SettlementRow.objects.bulk_create(c, batch_size=500, ignore_conflicts=True)
         return len(c)
 
-    for row in ws.iter_rows(min_row=2, values_only=True):
+    # Iterate DataFrame as tuples (memory-efficient)
+    for row in df.itertuples(index=False, name=None):
         if not row or not row[c_type]: continue
         oid = _clean_str(row[c_oid])
         sid = _clean_str(row[c_stid])
