@@ -5,7 +5,7 @@ from django.urls import reverse
 
 
 class SharedPasswordMiddleware:
-    EXEMPT = ['/login/', '/static/', '/admin/']
+    EXEMPT = ['/login/', '/static/', '/admin/', '/health/', '/favicon.ico']
 
     def __init__(self, get_response):
         self.get_response = get_response
