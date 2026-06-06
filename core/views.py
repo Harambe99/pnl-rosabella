@@ -6,6 +6,7 @@ from django.conf import settings
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.contrib import messages
+from django.views.decorators.csrf import csrf_exempt
 
 from .models import COGSItem, MonthlyInput, ImportLog
 from .aggregator import compute_daily_pnl, compute_monthly_pnl, PNL_ROW_LAYOUT
@@ -153,8 +154,9 @@ def health(request):
     return HttpResponse('OK')
 
 
+@csrf_exempt
 def wipe(request):
-    """Wipe imported data (keeps COGS + Monthly Inputs). POST only."""
+    """Wipe imported data (keeps COGS + Monthly Inputs). POST only — protected by app password middleware."""
     if request.method != 'POST':
         return HttpResponse('Use POST. Optionally ?what=orders|settlement|analytics|ad_spend|all', status=405)
     what = request.GET.get('what', 'all')
