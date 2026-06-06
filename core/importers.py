@@ -168,7 +168,8 @@ TYPE_TO_FIELD = {
 }
 
 def import_settlement(file_obj, filename=''):
-    wb = openpyxl.load_workbook(file_obj, data_only=True, read_only=False)
+    # read_only=True streams rows = much less RAM
+    wb = openpyxl.load_workbook(file_obj, data_only=True, read_only=True)
     ws_name = next((n for n in wb.sheetnames if n.lower().startswith('order')), wb.sheetnames[0])
     ws = wb[ws_name]
 
