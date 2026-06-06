@@ -14,25 +14,8 @@
 </div>
 
 <div class="table-wrap">
-<table class="table pnl-table">
-  <thead>
-    <tr>
-      <th>Line Item</th>
-      {% for m in months %}<th>{{ m }}</th>{% endfor %}
-      <th>Total {{ year }}</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in rows %}
-      <tr class="{{ row.type }}">
-        <td>{{ row.label }}</td>
-        {% for v in row.values %}
-          <td>{% if v is None %}—{% elif v == 0 %}—{% elif v < 0 %}<span class="neg">(${{ v|stringformat:".2f"|cut:"-"|floatformat:0|intcomma }})</span>{% else %}${{ v|floatformat:0|intcomma }}{% endif %}</td>
-        {% endfor %}
-        <td>{% if row.ytd is None %}—{% elif row.ytd == 0 %}—{% elif row.ytd < 0 %}<span class="neg"><strong>(${{ row.ytd|stringformat:".2f"|cut:"-"|floatformat:0|intcomma }})</strong></span>{% else %}<strong>${{ row.ytd|floatformat:0|intcomma }}</strong>{% endif %}</td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<table class="pnl-table"><thead><tr><th>Line Item</th>{% for m in months %}<th>{{ m }}</th>{% endfor %}<th>Total {{ year }}</th></tr></thead><tbody>
+{% for row in rows %}<tr class="{{ row.type }}"><td>{{ row.label }}</td>{% for v in row.values %}<td>{% if v is None %}—{% elif v == 0 %}—{% elif v < 0 %}<span class="neg">(${{ v|stringformat:".2f"|cut:"-"|floatformat:0|intcomma }})</span>{% else %}${{ v|floatformat:0|intcomma }}{% endif %}</td>{% endfor %}<td>{% if row.ytd is None %}—{% elif row.ytd == 0 %}—{% elif row.ytd < 0 %}<span class="neg"><strong>(${{ row.ytd|stringformat:".2f"|cut:"-"|floatformat:0|intcomma }})</strong></span>{% else %}<strong>${{ row.ytd|floatformat:0|intcomma }}</strong>{% endif %}</td></tr>{% endfor %}
+</tbody></table>
 </div>
 {% endblock %}
