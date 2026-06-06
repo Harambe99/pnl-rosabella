@@ -27,20 +27,35 @@ def _to_int(v):
     except: return 0
 
 
-def _to_date(v):
-    """Parse a date from various formats — always returns date or None."""
+def _to_date(v, prefer_dd_mm=False):
+    """Parse a date. Handles ambiguous MM/DD vs DD/MM by checking validity.
+    `prefer_dd_mm=True` for files known to use DD/MM/YYYY (Shop Analytics, Ad Spend)."""
     if not v: return None
     if isinstance(v, datetime): return v.date()
     if isinstance(v, date): return v
-    s = str(v).strip().replace('\t', '')
-    # Try YYYY/MM/DD or YYYY-MM-DD
+    s = str(v).strip().replace('\t', '').split(' ')[0]
+    # Unambiguous YYYY-first
     for fmt in ('%Y/%m/%d', '%Y-%m-%d'):
-        try: return datetime.strptime(s.split(' ')[0], fmt).date()
+        try: return datetime.strptime(s, fmt).date()
         except: pass
-    # Try MM/DD/YYYY (TikTok US format)
-    for fmt in ('%m/%d/%Y',):
-        try: return datetime.strptime(s.split(' ')[0], fmt).date()
-        except: pass
+    # Ambiguous slash-separated — disambiguate via numeric checks
+    parts = s.split('/')
+    if len(parts) == 3:
+        try:
+            p1, p2, p3 = int(parts[0]), int(parts[1]), int(parts[2])
+            # Year must be 4 digits and = p3
+            if p3 < 100: p3 += 2000
+            if p1 > 12 and p2 <= 12:    # MUST be DD/MM/YYYY
+                return date(p3, p2, p1)
+            if p2 > 12 and p1 <= 12:    # MUST be MM/DD/YYYY
+                return date(p3, p1, p2)
+            if p1 <= 12 and p2 <= 12:   # AMBIGUOUS — use hint
+                if prefer_dd_mm:
+                    return date(p3, p2, p1)
+                else:
+                    return date(p3, p1, p2)
+        except (ValueError, TypeError):
+            pass
     return None
 
 
@@ -260,9 +275,20 @@ def import_shop_analytics(file_obj, filename=''):
     if start < 0:
         return {'added': 0, 'skipped': 0, 'errors': ['Could not find "Date" header']}
 
+    # Pre-scan to detect format: if any row has day > 12, format is DD/MM/YYYY
+    prefer_dd_mm = False
+    for r in rows[start:]:
+        if not r or not r[0]: continue
+        s = str(r[0]).strip().split(' ')[0]
+        parts = s.split('/')
+        if len(parts) == 3:
+            try:
+                if int(parts[0]) > 12: prefer_dd_mm = True; break
+            except: pass
+
     count = 0
     for r in rows[start:]:
-        d = _to_date(r[0] if len(r) > 0 else None)
+        d = _to_date(r[0] if len(r) > 0 else None, prefer_dd_mm=prefer_dd_mm)
         gmv = _to_dec(r[1] if len(r) > 1 else 0)
         if not d: continue
         orders = _to_int(r[2] if len(r) > 2 else 0)
@@ -271,7 +297,7 @@ def import_shop_analytics(file_obj, filename=''):
             date=d, defaults={'gmv': gmv, 'orders': orders, 'items_sold': items_sold})
         count += 1
     ImportLog.objects.create(importer='shop_analytics', filename=filename, rows_added=count)
-    return {'added': count}
+    return {'added': count, 'format_detected': 'DD/MM/YYYY' if prefer_dd_mm else 'MM/DD/YYYY'}
 
 
 # ===========================================================================
@@ -288,9 +314,20 @@ def import_ad_spend(file_obj, filename=''):
     if start < 0:
         return {'added': 0, 'skipped': 0, 'errors': ['Could not find "By Day" header']}
 
+    # Pre-scan format
+    prefer_dd_mm = False
+    for r in rows[start:]:
+        if not r or not r[0]: continue
+        s = str(r[0]).strip().split(' ')[0]
+        parts = s.split('/')
+        if len(parts) == 3:
+            try:
+                if int(parts[0]) > 12: prefer_dd_mm = True; break
+            except: pass
+
     count = 0
     for r in rows[start:]:
-        d = _to_date(r[0] if len(r) > 0 else None)
+        d = _to_date(r[0] if len(r) > 0 else None, prefer_dd_mm=prefer_dd_mm)
         cost = _to_dec(r[1] if len(r) > 1 else 0)
         if not d: continue
         sku_orders = _to_int(r[2] if len(r) > 2 else 0)
@@ -299,7 +336,7 @@ def import_ad_spend(file_obj, filename=''):
             date=d, defaults={'cost': cost, 'sku_orders': sku_orders, 'gross_revenue': gross_rev})
         count += 1
     ImportLog.objects.create(importer='ad_spend', filename=filename, rows_added=count)
-    return {'added': count}
+    return {'added': count, 'format_detected': 'DD/MM/YYYY' if prefer_dd_mm else 'MM/DD/YYYY'}
 
 
 # ===========================================================================

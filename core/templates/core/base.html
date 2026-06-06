@@ -11,16 +11,21 @@
     .navbar { background: #1A202C !important; }
     .navbar-brand, .nav-link { color: #fff !important; }
     .nav-link:hover { color: #cbd5e0 !important; }
-    .pnl-table { font-size: 13px; }
-    .pnl-table th { background: #2D3748; color: #fff; padding: 8px 6px; font-weight: 600; position: sticky; top: 0; }
-    .pnl-table td { padding: 4px 6px; text-align: right; border-bottom: 1px solid #e2e8f0; }
-    .pnl-table td:first-child { text-align: left; font-weight: 500; }
-    .section td { background: #4A5568; color: #fff; font-weight: bold; }
-    .sub td { background: #E2E8F0; font-weight: 600; }
-    .total td { background: #f0f4f8; font-weight: bold; border-top: 2px solid #2D3748; }
-    .blank td { background: transparent; height: 8px; border: 0; }
+    .pnl-table { font-size: 13px; table-layout: auto; width: 100%; }
+    .pnl-table th { background: #2D3748; color: #fff; padding: 8px 6px; font-weight: 600; position: sticky; top: 0; z-index: 3; white-space: nowrap; }
+    .pnl-table td { padding: 3px 8px; text-align: right; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+    .pnl-table th:first-child, .pnl-table td:first-child {
+      text-align: left; font-weight: 500;
+      min-width: 280px; max-width: 320px;
+      position: sticky; left: 0; background: #fff; z-index: 2;
+    }
+    .pnl-table thead th:first-child { background: #2D3748; z-index: 4; }
+    .section td { background: #4A5568 !important; color: #fff; font-weight: bold; }
+    .sub td { background: #E2E8F0 !important; font-weight: 600; }
+    .total td { background: #f0f4f8 !important; font-weight: bold; border-top: 2px solid #2D3748; }
+    .blank td { background: transparent !important; height: 4px; border: 0; padding: 0; }
     .neg { color: #c53030; }
-    .table-wrap { overflow-x: auto; }
+    .table-wrap { overflow-x: auto; max-width: 100%; }
     .messages { padding: 10px 20px; }
     .alert-success { background: #c6f6d5; border: 1px solid #38a169; }
     .alert-error, .alert-danger { background: #fed7d7; border: 1px solid #c53030; }
