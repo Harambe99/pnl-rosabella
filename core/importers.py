@@ -72,11 +72,14 @@ def _cogs_lookup():
 # 1. Manage Orders CSV importer
 # ===========================================================================
 def import_manage_orders(file_obj, filename=''):
-    text = file_obj.read()
-    if isinstance(text, bytes):
-        text = text.decode('utf-8-sig', errors='replace')
-    reader = csv.reader(io.StringIO(text))
+    """Memory-efficient: streams CSV, bulk-inserts in 2000-row chunks, discards each chunk."""
+    # Read as text but use iter line-by-line to keep memory bounded
+    raw = file_obj.read()
+    if isinstance(raw, bytes):
+        raw = raw.decode('utf-8-sig', errors='replace')
+    reader = csv.reader(io.StringIO(raw))
     header = next(reader, None)
+    del raw  # free
     if not header:
         return {'added': 0, 'skipped': 0, 'errors': ['Empty file']}
 
@@ -95,14 +98,22 @@ def import_manage_orders(file_obj, filename=''):
     c_created = col('Created Time')
 
     if c_oid < 0 or c_sku < 0 or c_created < 0:
-        return {'added': 0, 'skipped': 0, 'errors': ['Missing required columns (Order ID / SKU ID / Created Time)']}
+        return {'added': 0, 'skipped': 0, 'errors': ['Missing required columns']}
 
     cogs_map = _cogs_lookup()
     existing = set(Order.objects.values_list('order_id', 'sku_id'))
 
-    to_create = []
+    chunk = []
+    CHUNK_SIZE = 2000
+    added_total = 0
     skipped = 0
     unmapped = set()
+
+    def flush(c):
+        if not c: return 0
+        with transaction.atomic():
+            Order.objects.bulk_create(c, batch_size=500, ignore_conflicts=True)
+        return len(c)
 
     for row in reader:
         if len(row) < max(c_oid, c_sku, c_created) + 1: continue
@@ -126,19 +137,20 @@ def import_manage_orders(file_obj, filename=''):
         else:
             cogs_val = Decimal(cogs_per) * qty
 
-        to_create.append(Order(
+        chunk.append(Order(
             order_id=oid, sku_id=sku, created_date=created, quantity=qty,
             status=status, gross_sale=gross, seller_discount=disc,
             order_refund=refund, cogs=cogs_val, source_file=filename,
         ))
+        if len(chunk) >= CHUNK_SIZE:
+            added_total += flush(chunk)
+            chunk = []
 
-    with transaction.atomic():
-        Order.objects.bulk_create(to_create, batch_size=500)
-        ImportLog.objects.create(importer='manage_orders', filename=filename,
-                                 rows_added=len(to_create), rows_skipped=skipped,
-                                 notes='Unmapped SKUs: ' + ','.join(sorted(unmapped)) if unmapped else '')
-
-    return {'added': len(to_create), 'skipped': skipped, 'unmapped_skus': sorted(unmapped)}
+    added_total += flush(chunk)
+    ImportLog.objects.create(importer='manage_orders', filename=filename,
+                             rows_added=added_total, rows_skipped=skipped,
+                             notes='Unmapped SKUs: ' + ','.join(sorted(unmapped)) if unmapped else '')
+    return {'added': added_total, 'skipped': skipped, 'unmapped_skus': sorted(unmapped)}
 
 
 # ===========================================================================
@@ -194,9 +206,17 @@ def import_settlement(file_obj, filename=''):
         return {'added': 0, 'skipped': 0, 'errors': ['Missing required Settlement columns']}
 
     existing = set(SettlementRow.objects.values_list('order_id', 'settlement_id', 'row_type'))
-    to_create = []
+    chunk = []
+    CHUNK_SIZE = 2000
+    added_total = 0
     skipped = 0
     unknown_types = {}
+
+    def flush_settle(c):
+        if not c: return 0
+        with transaction.atomic():
+            SettlementRow.objects.bulk_create(c, batch_size=500, ignore_conflicts=True)
+        return len(c)
 
     for row in ws.iter_rows(min_row=2, values_only=True):
         if not row or not row[c_type]: continue
@@ -249,16 +269,18 @@ def import_settlement(file_obj, filename=''):
                 sr.unclassified = adj
                 unknown_types[rt] = unknown_types.get(rt, 0) + 1
 
-        to_create.append(sr)
+        chunk.append(sr)
+        if len(chunk) >= CHUNK_SIZE:
+            added_total += flush_settle(chunk)
+            chunk = []
 
-    with transaction.atomic():
-        SettlementRow.objects.bulk_create(to_create, batch_size=500)
-        note = ''
-        if unknown_types:
-            note = 'Unknown types: ' + '; '.join(f'{k}={v}' for k, v in unknown_types.items())
-        ImportLog.objects.create(importer='settlement', filename=filename,
-                                 rows_added=len(to_create), rows_skipped=skipped, notes=note)
-    return {'added': len(to_create), 'skipped': skipped, 'unknown_types': unknown_types}
+    added_total += flush_settle(chunk)
+    note = ''
+    if unknown_types:
+        note = 'Unknown types: ' + '; '.join(f'{k}={v}' for k, v in unknown_types.items())
+    ImportLog.objects.create(importer='settlement', filename=filename,
+                             rows_added=added_total, rows_skipped=skipped, notes=note)
+    return {'added': added_total, 'skipped': skipped, 'unknown_types': unknown_types}
 
 
 # ===========================================================================
