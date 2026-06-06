@@ -1,0 +1,31 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}Daily P&L · {{ yyyy_mm }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">Daily P&amp;L — {{ yyyy_mm }}</h2>
+  <form method="get" class="d-flex gap-2">
+    <input type="month" name="month" value="{{ yyyy_mm }}" class="form-control form-control-sm" onchange="this.form.submit()">
+  </form>
+</div>
+<div class="table-wrap" style="max-height: 80vh;">
+<table class="table pnl-table table-bordered">
+  <thead>
+    <tr>
+      <th style="min-width:200px; position: sticky; left: 0; z-index: 2;">Line Item</th>
+      {% for d in dates %}<th>{{ d|date:"d M" }}</th>{% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+      <tr class="{{ row.type }}">
+        <td style="position: sticky; left: 0; background: inherit;">{{ row.label }}</td>
+        {% for v in row.values %}
+          <td>{% if v is None %}—{% elif v == 0 %}—{% elif v < 0 %}<span class="neg">(${{ v|stringformat:".2f"|cut:"-"|floatformat:0|intcomma }})</span>{% else %}${{ v|floatformat:0|intcomma }}{% endif %}</td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

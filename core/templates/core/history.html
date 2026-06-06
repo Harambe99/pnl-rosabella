@@ -1,0 +1,22 @@
+{% extends "core/base.html" %}
+{% block title %}Import History{% endblock %}
+{% block content %}
+<h2>Import History</h2>
+<table class="table table-sm">
+  <thead><tr><th>When</th><th>Type</th><th>File</th><th>Added</th><th>Skipped</th><th>Notes</th></tr></thead>
+  <tbody>
+  {% for r in logs %}
+    <tr>
+      <td>{{ r.imported_at|date:"M d Y, H:i" }}</td>
+      <td>{{ r.importer }}</td>
+      <td><code>{{ r.filename }}</code></td>
+      <td>{{ r.rows_added }}</td>
+      <td>{{ r.rows_skipped }}</td>
+      <td><small>{{ r.notes }}</small></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="text-muted">No imports yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

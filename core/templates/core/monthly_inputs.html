@@ -1,0 +1,58 @@
+{% extends "core/base.html" %}
+{% block title %}Monthly Inputs{% endblock %}
+{% block content %}
+<h2 class="mb-3">Monthly Inputs</h2>
+<p class="text-muted">Enter monthly amounts. Each value flat-spreads across days of the month into Daily P&amp;L.</p>
+
+<h4 class="mt-4">Add or edit a month</h4>
+<form method="post" class="row g-2 mb-4">
+  {% csrf_token %}
+  <div class="col-2"><input type="text" name="month" placeholder="2026-04" pattern="\d{4}-\d{2}" class="form-control" required></div>
+  <div class="col-2"><input type="number" step="0.01" name="team_spend" placeholder="Team Spend" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="software_tools" placeholder="Software & Tools" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="monthly_retainers" placeholder="Monthly Retainers" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="creatify" placeholder="Creatify" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="off_platform_1pct" placeholder="Off-Platform 1%" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="other_ga" placeholder="Other G&A" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="tt_promo_credits" placeholder="TT Promo Credits" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="cost_ship_to_fbt" placeholder="Cost Ship to FBT" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="cost_ship_to_customer" placeholder="Cost Ship to Customer" class="form-control"></div>
+  <div class="col-2"><button class="btn btn-primary" type="submit">Save</button></div>
+</form>
+
+<h4>Existing months</h4>
+<div class="table-wrap">
+<table class="table table-sm">
+  <thead><tr>
+    <th>Month</th><th>Team</th><th>Software</th><th>Retainers</th><th>Creatify</th>
+    <th>1% Off-Plat</th><th>Other G&A</th><th>Promo Credits</th>
+    <th>Ship FBT</th><th>Ship Customer</th>
+    <th>FBT Hub</th><th>FBT Storage</th><th>FBT Incidents</th><th>FBT Delayed</th>
+    <th>Updated</th>
+  </tr></thead>
+  <tbody>
+  {% for m in months %}
+    <tr>
+      <td><strong>{{ m.month }}</strong></td>
+      <td>${{ m.team_spend|floatformat:0 }}</td>
+      <td>${{ m.software_tools|floatformat:0 }}</td>
+      <td>${{ m.monthly_retainers|floatformat:0 }}</td>
+      <td>${{ m.creatify|floatformat:0 }}</td>
+      <td>${{ m.off_platform_1pct|floatformat:0 }}</td>
+      <td>${{ m.other_ga|floatformat:0 }}</td>
+      <td>${{ m.tt_promo_credits|floatformat:0 }}</td>
+      <td>${{ m.cost_ship_to_fbt|floatformat:0 }}</td>
+      <td>${{ m.cost_ship_to_customer|floatformat:0 }}</td>
+      <td>${{ m.fbt_hub_placement|floatformat:0 }}</td>
+      <td>${{ m.fbt_storage|floatformat:0 }}</td>
+      <td>${{ m.fbt_inbound_incidents|floatformat:0 }}</td>
+      <td>${{ m.fbt_delayed_response|floatformat:0 }}</td>
+      <td><small>{{ m.updated_at|date:"M d, H:i" }}</small></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="15" class="text-muted">No months yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

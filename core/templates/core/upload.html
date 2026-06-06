@@ -1,0 +1,85 @@
+{% extends "core/base.html" %}
+{% block title %}Upload Files{% endblock %}
+{% block content %}
+<h2 class="mb-4">Upload Files</h2>
+<p class="text-muted">Drag-drop or click each card to upload that file type. Imports are append-only with dedup — re-uploading the same file is safe.</p>
+
+<div class="row g-3 mb-4">
+  {% for kind, name, hint, accept in upload_kinds %}{% endfor %}
+
+  <div class="col-md-6 col-lg-4">
+    <form method="post" enctype="multipart/form-data" class="card p-3">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="manage_orders">
+      <h5>1. Manage Orders</h5>
+      <small class="text-muted mb-2">CSV from Seller portal → Orders → Manage Orders → Export</small>
+      <input type="file" name="file" accept=".csv" class="form-control mb-2" required>
+      <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+    </form>
+  </div>
+
+  <div class="col-md-6 col-lg-4">
+    <form method="post" enctype="multipart/form-data" class="card p-3">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="settlement">
+      <h5>2. Settlement</h5>
+      <small class="text-muted mb-2">xlsx from Finances → Statements → View by orders</small>
+      <input type="file" name="file" accept=".xlsx" class="form-control mb-2" required>
+      <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+    </form>
+  </div>
+
+  <div class="col-md-6 col-lg-4">
+    <form method="post" enctype="multipart/form-data" class="card p-3">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="shop_analytics">
+      <h5>3. Shop Analytics</h5>
+      <small class="text-muted mb-2">xlsx from Analytics → Shop Analytics → Export (GMV override)</small>
+      <input type="file" name="file" accept=".xlsx" class="form-control mb-2" required>
+      <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+    </form>
+  </div>
+
+  <div class="col-md-6 col-lg-4">
+    <form method="post" enctype="multipart/form-data" class="card p-3">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="ad_spend">
+      <h5>4. Ad Spend</h5>
+      <small class="text-muted mb-2">xlsx from Marketing → Shop Ads → Campaign overview</small>
+      <input type="file" name="file" accept=".xlsx" class="form-control mb-2" required>
+      <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+    </form>
+  </div>
+
+  <div class="col-md-6 col-lg-4">
+    <form method="post" enctype="multipart/form-data" class="card p-3">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="fbt_billing">
+      <h5>5. FBT Billing</h5>
+      <small class="text-muted mb-2">xlsx from FBT portal → Costs → Logistics Cost Overview</small>
+      <input type="text" name="period" placeholder="Billing period YYYY-MM (e.g. 2026-04)" class="form-control mb-2" pattern="\d{4}-\d{2}" required>
+      <input type="file" name="file" accept=".xlsx" class="form-control mb-2" required>
+      <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+    </form>
+  </div>
+</div>
+
+<h4 class="mt-4">Recent uploads</h4>
+<table class="table table-sm">
+  <thead><tr><th>When</th><th>Type</th><th>File</th><th>Added</th><th>Skipped</th><th>Notes</th></tr></thead>
+  <tbody>
+  {% for r in recent %}
+    <tr>
+      <td>{{ r.imported_at|date:"M d, H:i" }}</td>
+      <td>{{ r.importer }}</td>
+      <td>{{ r.filename }}</td>
+      <td>{{ r.rows_added }}</td>
+      <td>{{ r.rows_skipped }}</td>
+      <td><small class="text-muted">{{ r.notes }}</small></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="text-muted">No uploads yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
