@@ -151,3 +151,20 @@ def history(request):
 
 def health(request):
     return HttpResponse('OK')
+
+
+def wipe(request):
+    """Wipe imported data (keeps COGS + Monthly Inputs). POST only."""
+    if request.method != 'POST':
+        return HttpResponse('Use POST. Optionally ?what=orders|settlement|analytics|ad_spend|all', status=405)
+    what = request.GET.get('what', 'all')
+    counts = {}
+    if what in ('all', 'orders'):
+        counts['orders'] = __import__('core.models', fromlist=['Order']).Order.objects.all().delete()[0]
+    if what in ('all', 'settlement'):
+        counts['settlement'] = __import__('core.models', fromlist=['SettlementRow']).SettlementRow.objects.all().delete()[0]
+    if what in ('all', 'analytics'):
+        counts['analytics'] = __import__('core.models', fromlist=['AnalyticsDay']).AnalyticsDay.objects.all().delete()[0]
+    if what in ('all', 'ad_spend'):
+        counts['ad_spend'] = __import__('core.models', fromlist=['AdSpendDay']).AdSpendDay.objects.all().delete()[0]
+    return HttpResponse('Wiped: ' + str(counts))

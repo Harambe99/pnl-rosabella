@@ -11,4 +11,5 @@ urlpatterns = [
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
     path('health/', views.health, name='health'),
+    path('wipe/', views.wipe, name='wipe'),
 ]

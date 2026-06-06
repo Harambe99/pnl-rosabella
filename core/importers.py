@@ -168,8 +168,9 @@ TYPE_TO_FIELD = {
 }
 
 def import_settlement(file_obj, filename=''):
-    # read_only=True streams rows = much less RAM
-    wb = openpyxl.load_workbook(file_obj, data_only=True, read_only=True)
+    # read_only=True has a known openpyxl bug (returns only some rows) — use normal mode.
+    # On Standard tier (1GB) we have plenty of RAM for full workbook load.
+    wb = openpyxl.load_workbook(file_obj, data_only=True, read_only=False)
     ws_name = next((n for n in wb.sheetnames if n.lower().startswith('order')), wb.sheetnames[0])
     ws = wb[ws_name]
 
