@@ -10,7 +10,7 @@
 </div>
 <div class="table-wrap" style="max-height: 80vh;">
 <table class="pnl"><thead><tr><th>Line Item</th>{% for d in dates %}<th>{{ d|date:"d M" }}</th>{% endfor %}</tr></thead><tbody>
-{% for row in rows %}<tr class="{{ row.type }}"><td>{{ row.label }}</td>{% for v in row.values %}<td>{% if v is None %}—{% elif v == 0 %}—{% elif v < 0 %}<span class="neg">(${{ v|stringformat:".2f"|cut:"-"|floatformat:0|intcomma }})</span>{% else %}${{ v|floatformat:0|intcomma }}{% endif %}</td>{% endfor %}</tr>{% endfor %}
+{% for row in rows %}{% if row.type == 'section' or row.type == 'sub' or row.type == 'blank' %}<tr class="{{ row.type }}"><td>{{ row.label }}</td>{% for d in dates %}<td></td>{% endfor %}</tr>{% else %}<tr class="{{ row.type }}"><td>{{ row.label }}</td>{% for v in row.values %}<td>{% if v is None or v == 0 %}—{% elif v < 0 %}<span class="neg">(${{ v|stringformat:".2f"|cut:"-"|floatformat:0|intcomma }})</span>{% else %}${{ v|floatformat:0|intcomma }}{% endif %}</td>{% endfor %}</tr>{% endif %}{% endfor %}
 </tbody></table>
 </div>
 {% endblock %}
