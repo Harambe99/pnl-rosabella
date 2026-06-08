@@ -31,25 +31,46 @@ def logout_view(request):
     return redirect('login')
 
 
+def _pct(v, nr):
+    """Return value/net_revenue as a percentage, or None if not meaningful."""
+    if v is None or nr is None: return None
+    try:
+        nr_f = float(nr)
+        if nr_f == 0: return None
+        return float(v) / nr_f * 100
+    except (TypeError, ValueError):
+        return None
+
+
 def dashboard(request):
-    year = int(request.GET.get('year', 2026))
+    try:
+        year = int(request.GET.get('year', 2026))
+    except (TypeError, ValueError):
+        return redirect('dashboard')
     monthly = compute_monthly_pnl(year)
     months = [f'{year}-{m:02d}' for m in range(1, 13)]
     rows = []
+    # Pre-compute Net Revenue per month (for % column) and YTD Net Revenue
+    nr_per_month = [monthly.get(m, {}).get('NET REVENUE') for m in months]
+    ytd_nr = sum((nr or Decimal('0')) for nr in nr_per_month)
     for label, rtype in PNL_ROW_LAYOUT:
         if rtype == 'blank':
-            rows.append({'label': '', 'type': 'blank', 'values': [], 'ytd': None})
+            rows.append({'label': '', 'type': 'blank', 'cells': [(None, None)]*12,
+                         'ytd': None, 'ytd_pct': None})
             continue
         if rtype in ('section', 'sub'):
-            rows.append({'label': label, 'type': rtype, 'values': [None]*12, 'ytd': None})
+            rows.append({'label': label, 'type': rtype, 'cells': [(None, None)]*12,
+                         'ytd': None, 'ytd_pct': None})
             continue
-        vals = []
+        cells = []
         ytd = Decimal('0')
-        for m in months:
+        for m, nr in zip(months, nr_per_month):
             v = monthly.get(m, {}).get(label)
-            vals.append(v)
+            cells.append((v, _pct(v, nr)))
             if v is not None: ytd += v
-        rows.append({'label': label, 'type': rtype, 'values': vals, 'ytd': ytd})
+        ytd_pct = _pct(ytd, ytd_nr) if ytd_nr else None
+        rows.append({'label': label, 'type': rtype, 'cells': cells,
+                     'ytd': ytd, 'ytd_pct': ytd_pct})
     return render(request, 'core/dashboard.html', {
         'rows': rows, 'months': months, 'year': year,
     })
@@ -60,23 +81,35 @@ def daily_view(request):
     try:
         y, m = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
         start = date(y, m, 1)
-        end = date(y, m, monthrange(y, m)[1])
+        # End = last day of NEXT month, so user sees 2 months at once and can
+        # scroll across the boundary without changing filter.
+        ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+        end = date(ny, nm, monthrange(ny, nm)[1])
     except Exception:
         return redirect('daily')
     daily = compute_daily_pnl(start, end)
     dates = sorted(daily.keys())
+    # Pre-compute Net Revenue per date for the % column
+    nr_per_date = [daily.get(d, {}).get('NET REVENUE') for d in dates]
     rows = []
     for label, rtype in PNL_ROW_LAYOUT:
         if rtype == 'blank':
-            rows.append({'label': '', 'type': 'blank', 'values': [None]*len(dates)})
+            rows.append({'label': '', 'type': 'blank', 'cells': [(None, None)]*len(dates)})
             continue
         if rtype in ('section', 'sub'):
-            rows.append({'label': label, 'type': rtype, 'values': [None]*len(dates)})
+            rows.append({'label': label, 'type': rtype, 'cells': [(None, None)]*len(dates)})
             continue
-        vals = [daily.get(d, {}).get(label) for d in dates]
-        rows.append({'label': label, 'type': rtype, 'values': vals})
+        cells = []
+        for d, nr in zip(dates, nr_per_date):
+            v = daily.get(d, {}).get(label)
+            cells.append((v, _pct(v, nr)))
+        rows.append({'label': label, 'type': rtype, 'cells': cells})
+    # Prev/next month for nav buttons
+    py, pm = (y - 1, 12) if m == 1 else (y, m - 1)
     return render(request, 'core/daily.html', {
         'rows': rows, 'dates': dates, 'yyyy_mm': yyyy_mm,
+        'prev_month': f'{py:04d}-{pm:02d}',
+        'next_month': f'{ny:04d}-{nm:02d}',
     })
 
 

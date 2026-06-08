@@ -3,14 +3,38 @@
 {% block title %}Daily P&L · {{ yyyy_mm }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="mb-0">Daily P&amp;L — {{ yyyy_mm }}</h2>
-  <form method="get" class="d-flex gap-2">
+  <h2 class="mb-0">Daily P&amp;L — starting {{ yyyy_mm }} <small class="text-muted">(shows 2 months — scroll right)</small></h2>
+  <form method="get" class="d-flex gap-2 align-items-center">
+    <a href="?month={{ prev_month }}" class="btn btn-sm btn-outline-secondary" title="Previous month">←</a>
     <input type="month" name="month" value="{{ yyyy_mm }}" class="form-control form-control-sm" onchange="this.form.submit()">
+    <a href="?month={{ next_month }}" class="btn btn-sm btn-outline-secondary" title="Next month">→</a>
   </form>
 </div>
 <div class="table-wrap" style="max-height: 80vh;">
-<table class="pnl"><thead><tr><th>Line Item</th>{% for d in dates %}<th>{{ d|date:"d M" }}</th>{% endfor %}</tr></thead><tbody>
-{% for row in rows %}{% if row.type == 'section' or row.type == 'sub' or row.type == 'blank' %}<tr class="{{ row.type }}"><td>{{ row.label }}</td>{% for d in dates %}<td></td>{% endfor %}</tr>{% else %}<tr class="{{ row.type }}"><td>{{ row.label }}</td>{% for v in row.values %}<td>{% if v is None or v == 0 %}—{% elif v < 0 %}<span class="neg">(${{ v|stringformat:".2f"|cut:"-"|floatformat:0|intcomma }})</span>{% else %}${{ v|floatformat:0|intcomma }}{% endif %}</td>{% endfor %}</tr>{% endif %}{% endfor %}
-</tbody></table>
+<table class="pnl">
+  <thead>
+    <tr>
+      <th rowspan="2">Line Item</th>
+      {% for d in dates %}<th colspan="2" class="date-hdr">{{ d|date:"d M" }}</th>{% endfor %}
+    </tr>
+    <tr class="sub-hdr-row">
+      {% for d in dates %}<th class="sub-hdr">$</th><th class="sub-hdr pct-col">% NR</th>{% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+    {% if row.type == 'section' or row.type == 'sub' or row.type == 'blank' %}
+      <tr class="{{ row.type }}"><td>{{ row.label }}</td>{% for c in row.cells %}<td></td><td></td>{% endfor %}</tr>
+    {% else %}
+      <tr class="{{ row.type }}"><td>{{ row.label }}</td>
+        {% for v, p in row.cells %}
+          <td>{% if v is None or v == 0 %}—{% elif v < 0 %}<span class="neg">(${{ v|stringformat:".2f"|cut:"-"|floatformat:0|intcomma }})</span>{% else %}${{ v|floatformat:0|intcomma }}{% endif %}</td>
+          <td class="pct-col">{% if p is None %}—{% elif p < 0 %}<span class="neg">({{ p|stringformat:".1f"|cut:"-" }}%)</span>{% else %}{{ p|floatformat:1 }}%{% endif %}</td>
+        {% endfor %}
+      </tr>
+    {% endif %}
+  {% endfor %}
+  </tbody>
+</table>
 </div>
 {% endblock %}
