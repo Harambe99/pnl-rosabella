@@ -37,10 +37,13 @@ class Command(BaseCommand):
     help = 'Seed initial COGS table'
 
     def handle(self, *args, **opts):
-        created, updated = 0, 0
+        # IMPORTANT: only the cogs_per_order field is preserved on existing rows.
+        # Editing a COGS value on the page must NOT get overwritten by the next deploy.
+        # Metadata (name, variant, supplier_ref, notes, approval, listing_id) is always refreshed.
+        created, metadata_refreshed = 0, 0
         for row in SEED:
             sku_id, name, variant, cogs, sref, notes, app, listing = row
-            obj, was_created = COGSItem.objects.update_or_create(
+            obj, was_created = COGSItem.objects.get_or_create(
                 sku_id=sku_id,
                 defaults={
                     'product_name': name,
@@ -52,6 +55,19 @@ class Command(BaseCommand):
                     'listing_id': listing,
                 }
             )
-            if was_created: created += 1
-            else: updated += 1
-        self.stdout.write(self.style.SUCCESS(f'COGS seed: {created} created, {updated} updated.'))
+            if was_created:
+                created += 1
+            else:
+                # Refresh metadata only — preserve any user-edited cogs_per_order
+                obj.product_name = name
+                obj.sku_variant = variant
+                obj.supplier_ref = sref
+                obj.notes = notes
+                obj.approval = app
+                obj.listing_id = listing
+                obj.save(update_fields=['product_name', 'sku_variant', 'supplier_ref',
+                                        'notes', 'approval', 'listing_id'])
+                metadata_refreshed += 1
+        self.stdout.write(self.style.SUCCESS(
+            f'COGS seed: {created} created, {metadata_refreshed} metadata-refreshed '
+            f'(cogs_per_order preserved on existing rows).'))
