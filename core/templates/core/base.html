@@ -12,23 +12,34 @@
     .navbar-brand, .nav-link { color: #fff !important; }
     .nav-link:hover { color: #cbd5e0 !important; }
     /* PnL table — force standard table display in case anything overrides it */
-    table.pnl { font-size: 12px; white-space: nowrap; border-collapse: collapse; display: table !important; }
+    table.pnl { font-size: calc(12px * var(--pnl-zoom, 1)); white-space: nowrap; border-collapse: separate; border-spacing: 0; display: table !important; }
     table.pnl thead { display: table-header-group !important; }
     table.pnl tbody { display: table-row-group !important; }
     table.pnl tr { display: table-row !important; }
     table.pnl th, table.pnl td { display: table-cell !important; vertical-align: middle; }
     table.pnl thead th { background: #2D3748; color: #fff; padding: 8px 10px; text-align: right; border: 1px solid #1a202c; }
-    table.pnl thead th:first-child { text-align: left; min-width: 260px; }
+    table.pnl thead th:first-child { text-align: left; min-width: 260px; position: sticky; left: 0; z-index: 3; }
     table.pnl thead th.date-hdr { text-align: center; }
-    table.pnl thead th.sub-hdr { background: #4A5568; font-size: 11px; padding: 4px 8px; font-weight: 500; }
-    table.pnl td.pct-col { color: #718096; font-size: 11px; background: #fafafa; }
+    table.pnl thead th.sub-hdr { background: #4A5568; font-size: calc(11px * var(--pnl-zoom, 1)); padding: 4px 8px; font-weight: 500; }
+    table.pnl td.pct-col { color: #718096; font-size: calc(11px * var(--pnl-zoom, 1)); background: #fafafa; }
     table.pnl tr.total td.pct-col { background: #f0f4f8; }
-    table.pnl tbody td { padding: 4px 10px; text-align: right; border: 1px solid #e2e8f0; }
-    table.pnl tbody td:first-child { text-align: left; font-weight: 500; min-width: 260px; }
+    table.pnl tbody td { padding: 4px 10px; text-align: right; border: 1px solid #e2e8f0; background: #fff; }
+    table.pnl tbody td:first-child { text-align: left; font-weight: 500; min-width: 260px; position: sticky; left: 0; z-index: 2; background: #fff; box-shadow: 2px 0 4px rgba(0,0,0,0.05); }
     table.pnl tr.section td { background: #4A5568 !important; color: #fff; font-weight: bold; }
     table.pnl tr.sub td { background: #e2e8f0 !important; font-weight: 600; }
     table.pnl tr.total td { background: #edf2f7 !important; font-weight: bold; border-top: 2px solid #2D3748; }
     table.pnl tr.blank td { background: transparent !important; height: 6px; padding: 0; border: 0; }
+    /* Sticky column needs its own per-row-type background or it shows the cell beneath when scrolled */
+    table.pnl tr.section td:first-child { background: #4A5568 !important; }
+    table.pnl tr.sub td:first-child { background: #e2e8f0 !important; }
+    table.pnl tr.total td:first-child { background: #edf2f7 !important; }
+    table.pnl tr.blank td:first-child { background: #fafafa !important; }
+    /* Zoom controls */
+    .zoom-controls { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
+    .zoom-controls button { background: #e2e8f0; border: 1px solid #cbd5e0; border-radius: 4px; width: 28px; height: 28px; font-size: 14px; cursor: pointer; padding: 0; line-height: 1; }
+    .zoom-controls button:hover { background: #cbd5e0; }
+    .zoom-controls .zoom-label { font-size: 12px; color: #4a5568; min-width: 42px; text-align: center; }
+    .zoom-controls .reset { font-size: 11px; padding: 0 8px; width: auto; }
     .neg { color: #c53030; }
     .table-wrap { overflow-x: auto; max-width: 100%; }
     .messages { padding: 10px 20px; }
@@ -68,5 +79,24 @@
 <main class="container-fluid pb-5">
 {% block content %}{% endblock %}
 </main>
+<script>
+  // Shared zoom for P&L tables — persists across pages via localStorage
+  (function(){
+    function applyZoom(pct){
+      pct = Math.max(50, Math.min(200, pct));
+      document.documentElement.style.setProperty('--pnl-zoom', (pct/100).toString());
+      localStorage.setItem('pnl-zoom', String(pct));
+      var lbl = document.getElementById('zoomLabel');
+      if (lbl) lbl.textContent = pct + '%';
+    }
+    window.zoomAdjust = function(delta){
+      var cur = parseInt(localStorage.getItem('pnl-zoom') || '100', 10);
+      applyZoom(cur + delta);
+    };
+    window.zoomReset = function(){ applyZoom(100); };
+    // Apply saved zoom on page load
+    applyZoom(parseInt(localStorage.getItem('pnl-zoom') || '100', 10));
+  })();
+</script>
 </body>
 </html>
