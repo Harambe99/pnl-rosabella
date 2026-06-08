@@ -111,7 +111,8 @@ def compute_daily_pnl(start_date, end_date):
         '   Other G&A': ('other_ga', -1),
         '   Less: TT Promo Credits': ('tt_promo_credits', +1),
         '   Cost to Ship to FBT': ('cost_ship_to_fbt', -1),
-        '   Cost to Ship to Customer': ('cost_ship_to_customer', -1),
+        # Cost to Ship to Customer is NOT here — it's populated exclusively from
+        # SellerShipmentCost (Seller Shipping CSV import). No manual flat-spread.
         '   FBT Hub Placement Fee': ('fbt_hub_placement', -1),
         '   FBT Storage Fee': ('fbt_storage', -1),
         '   FBT Inbound Shipping Fee': ('fbt_inbound_shipping', -1),

@@ -174,7 +174,7 @@
 <h3>4.5 FBT Billing <span class="badge-src badge-fbt">XLSX</span></h3>
 <table class="table table-sm">
   <tbody>
-    <tr><th style="width:160px">Where to get</th><td>TikTok Seller Center → FBT → Costs → Logistics Cost Overview → Export</td></tr>
+    <tr><th style="width:160px">Where to get</th><td><strong>TikTok FBT Portal</strong> (separate from Seller Center — log into the FBT portal directly) → Costs → Logistics Cost Overview → Export</td></tr>
     <tr><th>Format</th><td>XLSX with line-item rows (Hub Placement, Storage, Inbound Shipping, etc.)</td></tr>
     <tr><th>Requires</th><td>You must enter the billing period as <code>YYYY-MM</code> in the form when uploading</td></tr>
     <tr><th>Dedup key</th><td>Period — overwrites Monthly Input fields for that month</td></tr>
@@ -198,8 +198,8 @@
   </tbody>
 </table>
 
-<h2 id="monthly-inputs">5. Monthly Inputs — manual values</h2>
-<p>Anything that isn't in a TikTok export goes here. Each field is a single monthly total. The aggregator <strong>flat-spreads</strong> each value across the days of that month into the Daily P&amp;L.</p>
+<h2 id="monthly-inputs">5. Monthly Inputs — manual values only</h2>
+<p>Only fields with <strong>no export source</strong> are entered here. Anything that comes from a TikTok export (FBT Billing, Seller Shipping CSV, etc.) is populated by the importer — never via this form — to prevent double-entry and conflicting numbers.</p>
 <table class="table table-sm table-bordered">
   <thead><tr><th>Field</th><th>What it is</th><th>Where you get it</th></tr></thead>
   <tbody>
@@ -209,22 +209,18 @@
     <tr><td><code>creatify</code></td><td>Creator sourcing platform cost</td><td>Creatify invoice</td></tr>
     <tr><td><code>off_platform_1pct</code></td><td>1% method commission for off-platform creators</td><td>Internal calc (1% of off-platform-driven revenue)</td></tr>
     <tr><td><code>other_ga</code></td><td>Misc G&amp;A — anything not otherwise categorized</td><td>Bookkeeping</td></tr>
-    <tr><td><code>tt_promo_credits</code></td><td>Free TikTok ad credits applied that month</td><td>Ads Manager → Billing → Credits</td></tr>
-    <tr><td><code>cost_ship_to_fbt</code></td><td>Outbound shipping seller→FBT warehouse</td><td>3PL or freight invoice</td></tr>
-    <tr><td><code>cost_ship_to_customer</code></td><td>Postage to ship orders to customers (fallback when no Seller Shipping CSV is uploaded for that month)</td><td>3PL postage report</td></tr>
-    <tr><td colspan="3" class="text-muted small"><em>FBT fields below are populated automatically when an FBT Billing XLSX is uploaded for that month:</em></td></tr>
-    <tr><td><code>fbt_hub_placement</code></td><td>FBT hub placement fee</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_storage</code></td><td>Monthly storage fee</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_inbound_shipping</code></td><td>Inbound shipping fee</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_inbound_incidents</code></td><td>Inbound incident charges</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_booking_noncomp</code></td><td>Inbound booking non-compliance</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_routing_noncomp</code></td><td>Routing non-compliance</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_outbound_noshow</code></td><td>Outbound appointment no-show</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_delayed_response</code></td><td>Delayed response fee</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_disposal</code></td><td>Disposal fee</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_return_shipping</code></td><td>Return shipping fee (VAS)</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_return_seller_handling</code></td><td>Return-to-seller handling</td><td>FBT Billing XLSX</td></tr>
-    <tr><td><code>fbt_inbound_return_op</code></td><td>Inbound return operation</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>tt_promo_credits</code></td><td>Free TikTok ad credits applied that month</td><td>Ads Manager → Billing → Credits (manual until a parser is added)</td></tr>
+    <tr><td><code>cost_ship_to_fbt</code></td><td>Outbound shipping seller→FBT warehouse</td><td>3PL or freight invoice. Blanket monthly approach — too noisy to attribute per-shipment.</td></tr>
+  </tbody>
+</table>
+
+<h4>Stored on MonthlyInput but populated by imports (NOT manual)</h4>
+<p>These fields exist on the same DB row but are <strong>only written by importers</strong>. They're shown read-only in the second table on the Monthly Inputs page so you can see what got imported.</p>
+<table class="table table-sm table-bordered">
+  <thead><tr><th>Field</th><th>Populated by</th></tr></thead>
+  <tbody>
+    <tr><td><code>fbt_hub_placement</code>, <code>fbt_storage</code>, <code>fbt_inbound_shipping</code>, <code>fbt_inbound_incidents</code>, <code>fbt_booking_noncomp</code>, <code>fbt_routing_noncomp</code>, <code>fbt_outbound_noshow</code>, <code>fbt_delayed_response</code>, <code>fbt_disposal</code>, <code>fbt_return_shipping</code>, <code>fbt_return_seller_handling</code>, <code>fbt_inbound_return_op</code></td><td>FBT Billing XLSX upload (12 fields)</td></tr>
+    <tr><td><code>cost_ship_to_customer</code></td><td>Legacy field — no longer used. Cost to Ship to Customer now reads exclusively from <code>SellerShipmentCost</code> rows (Seller Shipping CSV). If no CSV is uploaded for a month, the line shows $0.</td></tr>
   </tbody>
 </table>
 
@@ -251,7 +247,7 @@
 <div class="line-item"><div class="li-name">Seller Shipping <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement column <code>Shipping</code> — the shipping charge captured at order time (seller-shipped orders).</div></div>
 <div class="line-item"><div class="li-name">TT Shipping Subsidy (net) <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Sum of <code>TikTok Shop shipping incentive</code> + <code>Shipping fee subsidy</code> + <code>Customer shipping fee offset</code>.</div></div>
 <div class="line-item"><div class="li-name">Cost to Ship to FBT <span class="badge-src badge-monthly">Monthly Input</span></div><div class="li-meta">Flat-spread across days of the month.</div><div class="li-desc">No file import — enter total on Monthly Inputs tab. Sum your inbound-shipment invoices for the month.</div></div>
-<div class="line-item"><div class="li-name">Cost to Ship to Customer <span class="badge-src badge-ship">Seller Shipping CSV</span> <span class="badge-src badge-monthly">Monthly Input</span></div><div class="li-meta">If Seller Shipping CSV is uploaded for the month: real per-day sums of <code>postage</code>. Otherwise: flat-spread of the Monthly Input value.</div></div>
+<div class="line-item"><div class="li-name">Cost to Ship to Customer <span class="badge-src badge-ship">Seller Shipping CSV</span></div><div class="li-meta">Real per-day sums of <code>postage</code> from <code>SellerShipmentCost</code>. If no CSV is uploaded for the month, this row is $0 (no manual fallback).</div></div>
 <div class="line-item"><div class="li-name">Logistics Reimbursement <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement row type <code>Logistics reimbursement</code> → <code>Adjustment amount</code>.</div></div>
 <div class="line-item"><div class="li-name">FBT Hub Placement / Storage / Inbound Shipping / Incidents / Booking Non-Comp / Routing Non-Comp / Outbound No-Show / Delayed Response / Disposal / Return Shipping (VAS) / Return-to-Seller Handling / Inbound Return Operation <span class="badge-src badge-fbt">FBT Billing</span></div><div class="li-meta">All twelve FBT fee lines come from the FBT Billing XLSX (or manual Monthly Input).</div><div class="li-desc">Each line in the FBT Billing file maps to one MonthlyInput field via <code>FBT_LINE_TO_FIELD</code> in <code>importers.py</code>.</div></div>
 <div class="line-item"><div class="li-name">FBT Warehouse Compensation <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement row type <code>FBT warehouse compensation</code>.</div></div>
