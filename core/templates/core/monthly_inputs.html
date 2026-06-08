@@ -3,7 +3,7 @@
 {% block content %}
 <h2 class="mb-3">Monthly Inputs</h2>
 <p class="text-muted">Only fields with <strong>no export source</strong> live here. Each value flat-spreads across the month into Daily P&amp;L. Empty fields are left alone — only fields you fill in get updated. If a month already has saved values, you'll be warned before overwriting.</p>
-<p class="text-muted small"><em>FBT line items (Hub Placement, Storage, etc.) and Cost to Ship to Customer come from the <strong>FBT Billing XLSX</strong> and <strong>Seller Shipping CSV</strong> uploads — they're shown read-only below for reference.</em></p>
+<p class="text-muted small"><em>FBT line items and Cost to Ship to Customer are populated by the <strong>FBT Billing XLSX</strong> and <strong>Seller Shipping CSV</strong> uploads — they appear directly in the Daily and Monthly P&amp;L.</em></p>
 
 <h4 class="mt-4">Add or edit a month</h4>
 <form method="post" id="mi-form" class="row g-2 mb-3">
@@ -49,39 +49,6 @@
     </tr>
   {% empty %}
     <tr><td colspan="10" class="text-muted">No months yet.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
-
-<h4 class="mt-4">FBT Billing values (read-only — populated by FBT Billing XLSX upload)</h4>
-<div class="table-wrap">
-<table class="table table-sm table-bordered">
-  <thead><tr>
-    <th>Month</th>
-    <th>Hub Placement</th><th>Storage</th><th>Inb Ship</th><th>Incidents</th>
-    <th>Bk N/C</th><th>Rt N/C</th><th>NoShow</th><th>Delayed</th>
-    <th>Disposal</th><th>Ret Ship (VAS)</th><th>Ret Seller</th><th>Inb Ret Op</th>
-  </tr></thead>
-  <tbody>
-  {% for m in months %}
-    <tr>
-      <td><strong>{{ m.month }}</strong></td>
-      <td>${{ m.fbt_hub_placement|floatformat:0 }}</td>
-      <td>${{ m.fbt_storage|floatformat:0 }}</td>
-      <td>${{ m.fbt_inbound_shipping|floatformat:0 }}</td>
-      <td>${{ m.fbt_inbound_incidents|floatformat:0 }}</td>
-      <td>${{ m.fbt_booking_noncomp|floatformat:0 }}</td>
-      <td>${{ m.fbt_routing_noncomp|floatformat:0 }}</td>
-      <td>${{ m.fbt_outbound_noshow|floatformat:0 }}</td>
-      <td>${{ m.fbt_delayed_response|floatformat:0 }}</td>
-      <td>${{ m.fbt_disposal|floatformat:0 }}</td>
-      <td>${{ m.fbt_return_shipping|floatformat:0 }}</td>
-      <td>${{ m.fbt_return_seller_handling|floatformat:0 }}</td>
-      <td>${{ m.fbt_inbound_return_op|floatformat:0 }}</td>
-    </tr>
-  {% empty %}
-    <tr><td colspan="13" class="text-muted">No months yet.</td></tr>
   {% endfor %}
   </tbody>
 </table>
