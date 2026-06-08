@@ -83,6 +83,20 @@ class SettlementRow(models.Model):
         ]
 
 
+class SellerShipmentCost(models.Model):
+    """One row per shipment from seller-shipping CSV (e.g., 3PL postage breakdown).
+    Primary key is shipment_number — re-imports dedup on it."""
+    shipment_number = models.CharField(max_length=64, unique=True, db_index=True)
+    shipped_date = models.DateField(db_index=True)
+    postage = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    reference_number = models.CharField(max_length=64, blank=True)
+    carrier_service = models.CharField(max_length=64, blank=True)
+    tracking = models.CharField(max_length=128, blank=True)
+    channel_name = models.CharField(max_length=64, blank=True)
+    source_file = models.CharField(max_length=255, blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+
+
 class AnalyticsDay(models.Model):
     """Daily GMV from Shop Analytics export."""
     date = models.DateField(unique=True)

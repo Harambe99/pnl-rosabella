@@ -11,7 +11,8 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import COGSItem, MonthlyInput, ImportLog
 from .aggregator import compute_daily_pnl, compute_monthly_pnl, PNL_ROW_LAYOUT
 from .importers import (import_manage_orders, import_settlement,
-                        import_shop_analytics, import_ad_spend, import_fbt_billing)
+                        import_shop_analytics, import_ad_spend, import_fbt_billing,
+                        import_seller_shipping)
 
 
 def login_view(request):
@@ -98,6 +99,8 @@ def upload(request):
             elif kind == 'fbt_billing':
                 period = request.POST.get('period', '').strip()
                 result = import_fbt_billing(f, period, f.name)
+            elif kind == 'seller_shipping':
+                result = import_seller_shipping(f, f.name)
             else:
                 messages.error(request, 'Unknown import type.')
                 return redirect('upload')
@@ -169,4 +172,6 @@ def wipe(request):
         counts['analytics'] = __import__('core.models', fromlist=['AnalyticsDay']).AnalyticsDay.objects.all().delete()[0]
     if what in ('all', 'ad_spend'):
         counts['ad_spend'] = __import__('core.models', fromlist=['AdSpendDay']).AdSpendDay.objects.all().delete()[0]
+    if what in ('all', 'seller_shipping'):
+        counts['seller_shipping'] = __import__('core.models', fromlist=['SellerShipmentCost']).SellerShipmentCost.objects.all().delete()[0]
     return HttpResponse('Wiped: ' + str(counts))

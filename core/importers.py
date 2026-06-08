@@ -9,7 +9,7 @@ from decimal import Decimal
 from django.db import transaction
 import openpyxl
 
-from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, COGSItem, ImportLog
+from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, COGSItem, ImportLog, SellerShipmentCost
 
 
 def _to_dec(v):
@@ -380,6 +380,88 @@ FBT_LINE_TO_FIELD = {
     'Return to seller handling fee': 'fbt_return_seller_handling',
     'Inbound return operation fee': 'fbt_inbound_return_op',
 }
+
+# ===========================================================================
+# 6. Seller Shipping (per-shipment postage) CSV importer
+# ===========================================================================
+def import_seller_shipping(file_obj, filename=''):
+    """CSV with cols: channel_name, shipped_date, reference_number, shipment_number,
+    ..., carrier_service, tracking, postage, ...
+    Dedup on shipment_number. Date format: 'Mon D, YYYY' (e.g., 'Apr 1, 2026')."""
+    raw = file_obj.read()
+    if isinstance(raw, bytes):
+        raw = raw.decode('utf-8-sig', errors='replace')
+    reader = csv.reader(io.StringIO(raw))
+    header = next(reader, None)
+    del raw
+    if not header:
+        return {'added': 0, 'skipped': 0, 'errors': ['Empty file']}
+
+    hdr = [h.strip().lower() for h in header]
+    def col(name):
+        try: return hdr.index(name.lower())
+        except ValueError: return -1
+
+    c_chan = col('channel_name')
+    c_date = col('shipped_date')
+    c_ref = col('reference_number')
+    c_ship = col('shipment_number')
+    c_carrier = col('carrier_service')
+    c_track = col('tracking')
+    c_post = col('postage')
+
+    if c_ship < 0 or c_date < 0 or c_post < 0:
+        return {'added': 0, 'skipped': 0, 'errors': ['Missing required columns (shipment_number, shipped_date, postage)']}
+
+    existing = set(SellerShipmentCost.objects.values_list('shipment_number', flat=True))
+    chunk = []
+    CHUNK_SIZE = 2000
+    added_total = 0
+    skipped = 0
+
+    def flush(c):
+        if not c: return 0
+        with transaction.atomic():
+            SellerShipmentCost.objects.bulk_create(c, batch_size=500, ignore_conflicts=True)
+        return len(c)
+
+    for row in reader:
+        if len(row) <= c_ship: continue
+        ship = _clean_str(row[c_ship])
+        if not ship: continue
+        if ship in existing:
+            skipped += 1; continue
+        existing.add(ship)
+
+        # Parse 'Apr 1, 2026' format
+        d_raw = _clean_str(row[c_date]) if c_date >= 0 and c_date < len(row) else ''
+        d = None
+        for fmt in ('%b %d, %Y', '%B %d, %Y'):
+            try:
+                d = datetime.strptime(d_raw, fmt).date(); break
+            except: pass
+        if not d:
+            d = _to_date(d_raw)
+        if not d: continue
+
+        chunk.append(SellerShipmentCost(
+            shipment_number=ship,
+            shipped_date=d,
+            postage=_to_dec(row[c_post]) if c_post < len(row) else Decimal('0'),
+            reference_number=_clean_str(row[c_ref]) if c_ref >= 0 and c_ref < len(row) else '',
+            carrier_service=_clean_str(row[c_carrier]) if c_carrier >= 0 and c_carrier < len(row) else '',
+            tracking=_clean_str(row[c_track]) if c_track >= 0 and c_track < len(row) else '',
+            channel_name=_clean_str(row[c_chan]) if c_chan >= 0 and c_chan < len(row) else '',
+            source_file=filename,
+        ))
+        if len(chunk) >= CHUNK_SIZE:
+            added_total += flush(chunk); chunk = []
+
+    added_total += flush(chunk)
+    ImportLog.objects.create(importer='seller_shipping', filename=filename,
+                             rows_added=added_total, rows_skipped=skipped)
+    return {'added': added_total, 'skipped': skipped}
+
 
 def import_fbt_billing(file_obj, period, filename=''):
     """period must be 'YYYY-MM'."""

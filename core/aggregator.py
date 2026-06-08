@@ -5,7 +5,7 @@ from decimal import Decimal
 from datetime import date, timedelta
 from calendar import monthrange
 from django.db.models import Sum, Q
-from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput
+from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, SellerShipmentCost
 
 
 ZERO = Decimal('0')
@@ -134,6 +134,19 @@ def compute_daily_pnl(start_date, end_date):
         for label, (field, sign) in overlay_fields.items():
             val = getattr(mi, field) or ZERO
             result[d][label] = Decimal(sign) * val / dim
+
+    # Seller-shipping per-day override for Cost to Ship to Customer.
+    # If any shipment rows exist for a month, use real daily sums for that whole month
+    # (overrides the flat-spread from Monthly Inputs).
+    ship_qs = SellerShipmentCost.objects.filter(
+        shipped_date__gte=start_date, shipped_date__lte=end_date
+    ).values('shipped_date').annotate(total=Sum('postage'))
+    daily_ship = {r['shipped_date']: r['total'] or ZERO for r in ship_qs}
+    months_with_ship = {f'{d.year:04d}-{d.month:02d}' for d in daily_ship.keys()}
+    for d in dates:
+        mkey = f'{d.year:04d}-{d.month:02d}'
+        if mkey in months_with_ship:
+            result[d]['   Cost to Ship to Customer'] = -(daily_ship.get(d, ZERO))
 
     # Compute calc rows per date
     for d in dates:
