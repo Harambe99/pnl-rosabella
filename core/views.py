@@ -204,4 +204,9 @@ def wipe(request):
         counts['ad_spend'] = __import__('core.models', fromlist=['AdSpendDay']).AdSpendDay.objects.all().delete()[0]
     if what in ('all', 'seller_shipping'):
         counts['seller_shipping'] = __import__('core.models', fromlist=['SellerShipmentCost']).SellerShipmentCost.objects.all().delete()[0]
+    if what in ('all', 'monthly_inputs'):
+        counts['monthly_inputs'] = __import__('core.models', fromlist=['MonthlyInput']).MonthlyInput.objects.all().delete()[0]
+        counts['monthly_audit'] = __import__('core.models', fromlist=['MonthlyInputAudit']).MonthlyInputAudit.objects.all().delete()[0]
+    if what in ('all', 'logs'):
+        counts['logs'] = __import__('core.models', fromlist=['ImportLog']).ImportLog.objects.all().delete()[0]
     return HttpResponse('Wiped: ' + str(counts))
