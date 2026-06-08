@@ -153,6 +153,10 @@ def history(request):
     return render(request, 'core/history.html', {'logs': logs})
 
 
+def readme(request):
+    return render(request, 'core/readme.html')
+
+
 def health(request):
     return HttpResponse('OK')
 

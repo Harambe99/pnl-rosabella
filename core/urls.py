@@ -8,6 +8,7 @@ urlpatterns = [
     path('cogs/', views.cogs, name='cogs'),
     path('monthly-inputs/', views.monthly_inputs, name='monthly_inputs'),
     path('history/', views.history, name='history'),
+    path('readme/', views.readme, name='readme'),
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
     path('health/', views.health, name='health'),

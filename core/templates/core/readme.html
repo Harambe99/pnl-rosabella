@@ -1,0 +1,376 @@
+{% extends "core/base.html" %}
+{% block title %}README · System Documentation{% endblock %}
+{% block content %}
+<style>
+  .readme h2 { margin-top: 2.5rem; padding-bottom: 0.4rem; border-bottom: 2px solid #2D3748; color: #1A202C; }
+  .readme h3 { margin-top: 1.6rem; color: #2D3748; }
+  .readme h4 { margin-top: 1.2rem; color: #4A5568; font-size: 1.05rem; }
+  .readme p, .readme li { font-size: 0.95rem; line-height: 1.55; }
+  .readme code { background: #edf2f7; padding: 1px 5px; border-radius: 3px; font-size: 0.88em; color: #c53030; }
+  .readme pre { background: #1a202c; color: #e2e8f0; padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 0.85em; }
+  .readme pre code { background: transparent; color: inherit; padding: 0; }
+  .readme table { font-size: 0.88rem; }
+  .readme table th { background: #4A5568; color: #fff; padding: 6px 10px; }
+  .readme table td { padding: 6px 10px; vertical-align: top; }
+  .readme .toc { background: #f7fafc; padding: 16px 20px; border-left: 4px solid #4299e1; border-radius: 4px; margin-bottom: 24px; }
+  .readme .toc a { display: block; padding: 2px 0; color: #2c5282; text-decoration: none; }
+  .readme .toc a:hover { text-decoration: underline; }
+  .readme .callout { background: #fffbeb; border-left: 4px solid #d69e2e; padding: 12px 16px; margin: 12px 0; border-radius: 4px; }
+  .readme .callout-info { background: #ebf8ff; border-left-color: #3182ce; }
+  .readme .callout-warn { background: #fed7d7; border-left-color: #c53030; }
+  .readme .line-item { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; background: #fff; }
+  .readme .line-item .li-name { font-weight: 600; color: #1a202c; }
+  .readme .line-item .li-meta { font-size: 0.82rem; color: #718096; margin-top: 2px; }
+  .readme .line-item .li-desc { margin-top: 6px; font-size: 0.9rem; }
+  .readme .badge-src { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; }
+  .readme .badge-orders { background: #c6f6d5; color: #22543d; }
+  .readme .badge-settle { background: #bee3f8; color: #2a4365; }
+  .readme .badge-analytics { background: #fefcbf; color: #744210; }
+  .readme .badge-ads { background: #fed7e2; color: #702459; }
+  .readme .badge-fbt { background: #e9d8fd; color: #553c9a; }
+  .readme .badge-ship { background: #fbd38d; color: #7b341e; }
+  .readme .badge-monthly { background: #cbd5e0; color: #2d3748; }
+  .readme .badge-cogs { background: #fed7d7; color: #742a2a; }
+  .readme .badge-calc { background: #1a202c; color: #fff; }
+</style>
+
+<div class="readme">
+
+<h1 class="mb-2">PnL Rosabella — System Documentation</h1>
+<p class="text-muted">Living reference for anyone who needs to understand, verify, deploy, or extend this P&amp;L app. Read top-to-bottom on first pass; use the TOC after that.</p>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <a href="#overview">1. What this is &amp; how it works</a>
+  <a href="#stack">2. Tech stack &amp; hosting</a>
+  <a href="#pages">3. The pages (navigation)</a>
+  <a href="#imports">4. The 6 file imports — where, how, verify</a>
+  <a href="#monthly-inputs">5. Monthly Inputs — manual values</a>
+  <a href="#cogs">6. COGS — SKU cost lookup</a>
+  <a href="#line-items">7. P&amp;L line items — source &amp; verification for each row</a>
+  <a href="#calc">8. How the numbers roll up (Daily → Monthly)</a>
+  <a href="#deploy">9. Deploying code changes</a>
+  <a href="#admin">10. Admin / data ops (wipe, etc.)</a>
+  <a href="#handoff">11. For the next maintainer / AI agent</a>
+  <a href="#gotchas">12. Known gotchas &amp; design decisions</a>
+</div>
+
+<h2 id="overview">1. What this is &amp; how it works</h2>
+<p>This is a multi-user web-based Profit &amp; Loss tracker for a TikTok Shop business. It replaces an earlier Google Sheets workflow that suffered from date/locale bugs and formula drift.</p>
+<p>Core idea: every numeric line in the P&amp;L is either</p>
+<ol>
+  <li><strong>Parsed from a TikTok export file</strong> (5 file types), or</li>
+  <li><strong>Looked up from the COGS table</strong> (per-SKU costs), or</li>
+  <li><strong>Manually entered on the Monthly Inputs tab</strong> (overheads &amp; FBT billing the platform exports don't surface clearly).</li>
+</ol>
+<p>The aggregator pulls all three sources together, computes derived rows (GMV, Net Revenue, Gross Profit, Net Profit, etc.), and renders Daily and Monthly views.</p>
+
+<h2 id="stack">2. Tech stack &amp; hosting</h2>
+<table class="table table-sm table-bordered">
+  <tbody>
+    <tr><th style="width:200px">Framework</th><td>Django 4.2 (Python 3.11)</td></tr>
+    <tr><th>Database</th><td>PostgreSQL (Render-managed, Basic plan)</td></tr>
+    <tr><th>Web server</th><td>Gunicorn (<code>--workers 1 --threads 4 --timeout 900</code>)</td></tr>
+    <tr><th>Static files</th><td>WhiteNoise (no separate CDN needed)</td></tr>
+    <tr><th>Hosting</th><td>Render Web Service (Standard plan, ~2 GB RAM) — auto-deploy on push to <code>main</code></td></tr>
+    <tr><th>Source repo</th><td><code>github.com/Harambe99/pnl-rosabella</code></td></tr>
+    <tr><th>Live URL</th><td><code>https://pnl-rosabella.onrender.com</code></td></tr>
+    <tr><th>Auth</th><td>Single shared password (env var <code>APP_PASSWORD</code>) gated by <code>SharedPasswordMiddleware</code></td></tr>
+    <tr><th>CI / build</th><td><code>build.sh</code> — installs deps, collects static, runs migrations, seeds COGS table</td></tr>
+  </tbody>
+</table>
+
+<h3>Repo layout</h3>
+<pre><code>pnl-rosabella/
+├── build.sh                         # Render build script (migrate + seed COGS)
+├── render.yaml                      # Service + Postgres definition
+├── requirements.txt                 # Python deps
+├── manage.py
+├── pnl/                             # Django project (settings, urls, wsgi)
+│   ├── settings.py                  # APP_PASSWORD, DATABASE_URL, WhiteNoise
+│   └── urls.py
+└── core/                            # The app
+    ├── models.py                    # 7 models (see section 7)
+    ├── importers.py                 # 6 file parsers
+    ├── aggregator.py                # Pulls DB → computes P&L → returns dicts
+    ├── views.py                     # Page handlers
+    ├── urls.py                      # Route map
+    ├── middleware.py                # Shared-password gate
+    ├── migrations/                  # Django migrations
+    ├── management/commands/         # seed_cogs
+    └── templates/core/              # All HTML templates
+</code></pre>
+
+<h2 id="pages">3. The pages (navigation)</h2>
+<table class="table table-sm table-bordered">
+  <thead><tr><th>Page</th><th>URL</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td>Monthly P&amp;L</td><td><code>/</code></td><td>Year view: 12 columns × all P&amp;L rows + YTD column.</td></tr>
+    <tr><td>Daily P&amp;L</td><td><code>/daily/</code></td><td>One month at a time, day-by-day columns.</td></tr>
+    <tr><td>Upload</td><td><code>/upload/</code></td><td>Six upload cards — one per file type. Append-only with dedup.</td></tr>
+    <tr><td>Monthly Inputs</td><td><code>/monthly-inputs/</code></td><td>Manual monthly values: team spend, software, FBT billing line items, etc.</td></tr>
+    <tr><td>COGS</td><td><code>/cogs/</code></td><td>SKU → per-order cost table. Edited inline. Used to compute COGS column.</td></tr>
+    <tr><td>History</td><td><code>/history/</code></td><td>Audit trail of every file ever uploaded (with row counts + notes).</td></tr>
+    <tr><td>README</td><td><code>/readme/</code></td><td>This page.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="imports">4. The 6 file imports</h2>
+<p>All uploads are <strong>append-only with dedup</strong> — re-uploading the same file is safe. Each importer logs to the <code>ImportLog</code> table (visible on the History page).</p>
+
+<h3>4.1 Manage Orders <span class="badge-src badge-orders">CSV</span></h3>
+<table class="table table-sm">
+  <tbody>
+    <tr><th style="width:160px">Where to get</th><td>TikTok Seller Center → Orders → Manage Orders → Export (date range)</td></tr>
+    <tr><th>Format</th><td>CSV, one row per (Order ID, SKU ID) line</td></tr>
+    <tr><th>Key columns</th><td><code>Order ID</code>, <code>SKU ID</code>, <code>Created Time</code>, <code>Quantity</code>, <code>SKU Subtotal Before Discount</code>, <code>SKU Seller Discount</code>, <code>Order Refund Amount</code>, <code>Order Status</code></td></tr>
+    <tr><th>Date format</th><td><code>MM/DD/YYYY HH:MM:SS AM/PM</code> (US locale)</td></tr>
+    <tr><th>Dedup key</th><td><code>(Order ID, SKU ID)</code></td></tr>
+    <tr><th>Powers</th><td>Gross Sales, Promos &amp; Discounts, COGS (× COGSItem lookup)</td></tr>
+    <tr><th>Verify</th><td>Pick any date in Daily P&amp;L. Open the CSV, filter Created Time to that date, exclude Canceled, sum <code>SKU Subtotal Before Discount</code>. Should match the <strong>Gross Sales</strong> row.</td></tr>
+  </tbody>
+</table>
+
+<h3>4.2 Settlement <span class="badge-src badge-settle">XLSX</span></h3>
+<table class="table table-sm">
+  <tbody>
+    <tr><th style="width:160px">Where to get</th><td>TikTok Seller Center → Finances → Statements → View by orders → Export</td></tr>
+    <tr><th>Format</th><td>XLSX (large — 37 K+ rows for a single month is normal)</td></tr>
+    <tr><th>Parser</th><td>pandas (NOT openpyxl read-only — see Gotchas)</td></tr>
+    <tr><th>Key columns</th><td><code>Order/adjustment ID</code>, <code>Statement ID</code>, <code>Type</code>, <code>Order created date</code>, <code>Statement date</code>, plus ~20 fee/refund/reimbursement columns</td></tr>
+    <tr><th>Dedup key</th><td><code>(Order ID, Statement ID, Type)</code></td></tr>
+    <tr><th>Powers</th><td>Refunds, Referral Fee, Affiliate Commission, Campaign Service Fee, Shipping, TT Shipping Subsidy, Co-funded Promo, Chargebacks, Violation Fee, FBT Warehouse Compensation, Logistics Reimbursement, Rebate, TikTok Shop Reimb, Unclassified Adjustments</td></tr>
+    <tr><th>Attribution</th><td>Rows are bucketed into the day the <em>order was created</em>, not the settlement date — so a May settlement file backfills April rows naturally.</td></tr>
+    <tr><th>Verify</th><td>Filter the XLSX to one Order Created Date, sum any fee column, compare to the equivalent row on that day's Daily P&amp;L.</td></tr>
+  </tbody>
+</table>
+
+<h3>4.3 Shop Analytics <span class="badge-src badge-analytics">XLSX</span></h3>
+<table class="table table-sm">
+  <tbody>
+    <tr><th style="width:160px">Where to get</th><td>TikTok Seller Center → Analytics → Shop Analytics → Export key metrics</td></tr>
+    <tr><th>Format</th><td>XLSX with a "Date" header row, then daily rows</td></tr>
+    <tr><th>Key columns</th><td>Date (col A), GMV (col B), Orders (col C), Items Sold (col E)</td></tr>
+    <tr><th>Date format</th><td><code>DD/MM/YYYY</code> (auto-detected)</td></tr>
+    <tr><th>Dedup key</th><td><code>date</code> (uses <code>update_or_create</code>, so re-upload overwrites)</td></tr>
+    <tr><th>Powers</th><td>Overrides the derived <code>GMV = Gross + Promos</code> with TikTok's authoritative value. Match-to-portal verification.</td></tr>
+    <tr><th>Verify</th><td>The monthly GMV total should match the number TikTok shows in the Analytics dashboard for that month, to the dollar.</td></tr>
+  </tbody>
+</table>
+
+<h3>4.4 Ad Spend <span class="badge-src badge-ads">XLSX</span></h3>
+<table class="table table-sm">
+  <tbody>
+    <tr><th style="width:160px">Where to get</th><td>TikTok Seller Center → Marketing → Shop Ads → Campaign overview → Export</td></tr>
+    <tr><th>Format</th><td>XLSX with a "By Day" header section, then daily rows</td></tr>
+    <tr><th>Key columns</th><td>Date (col A), Cost (col B), SKU Orders (col C), Gross Revenue (col E)</td></tr>
+    <tr><th>Date format</th><td><code>MM/DD/YYYY</code> (auto-detected)</td></tr>
+    <tr><th>Dedup key</th><td><code>date</code> (overwrites on re-upload)</td></tr>
+    <tr><th>Powers</th><td>Ad Spend — Direct to TikTok (cash) line</td></tr>
+    <tr><th>Verify</th><td>Monthly total should match the "Spend" tile in Ads Manager for the same date range.</td></tr>
+  </tbody>
+</table>
+
+<h3>4.5 FBT Billing <span class="badge-src badge-fbt">XLSX</span></h3>
+<table class="table table-sm">
+  <tbody>
+    <tr><th style="width:160px">Where to get</th><td>TikTok Seller Center → FBT → Costs → Logistics Cost Overview → Export</td></tr>
+    <tr><th>Format</th><td>XLSX with line-item rows (Hub Placement, Storage, Inbound Shipping, etc.)</td></tr>
+    <tr><th>Requires</th><td>You must enter the billing period as <code>YYYY-MM</code> in the form when uploading</td></tr>
+    <tr><th>Dedup key</th><td>Period — overwrites Monthly Input fields for that month</td></tr>
+    <tr><th>Powers</th><td>FBT Hub Placement, Storage, Inbound Shipping, Incidents, Booking Non-Comp, Routing Non-Comp, Outbound No-Show, Delayed Response, Disposal, Return Shipping, Return-to-Seller Handling, Inbound Return Operation — all of which are <em>monthly</em> billed and stored in MonthlyInput.</td></tr>
+    <tr><th>Verify</th><td>Each line in the FBT XLSX maps to a column on the Monthly Inputs page for that month. Check the saved values match.</td></tr>
+  </tbody>
+</table>
+
+<h3>4.6 Seller Shipping (postage breakdown) <span class="badge-src badge-ship">CSV</span></h3>
+<table class="table table-sm">
+  <tbody>
+    <tr><th style="width:160px">Where to get</th><td>3PL postage report. Internal naming: TTS SELLER SHIPPING BREAKDOWN</td></tr>
+    <tr><th>Format</th><td>CSV. One row per shipment-line-item (multi-SKU shipments repeat the same shipment_number and the same postage value across all line items)</td></tr>
+    <tr><th>Required columns</th><td><code>shipment_number</code>, <code>shipped_date</code>, <code>postage</code></td></tr>
+    <tr><th>Optional columns</th><td><code>channel_name</code>, <code>reference_number</code>, <code>carrier_service</code>, <code>tracking</code></td></tr>
+    <tr><th>Date format</th><td><code>Mon D, YYYY</code> (e.g., <code>Apr 1, 2026</code>)</td></tr>
+    <tr><th>Dedup key</th><td><code>shipment_number</code> — prevents double-counting postage on multi-SKU shipments</td></tr>
+    <tr><th>Powers</th><td><strong>Cost to Ship to Customer</strong> — overrides the Monthly Inputs flat-spread for any month that has shipment rows.</td></tr>
+    <tr><th>Override rule</th><td>If <em>any</em> SellerShipmentCost rows exist for a month, that month's Cost to Ship to Customer comes from real daily sums and the Monthly Input value is ignored. Months with no shipment data continue to use Monthly Input.</td></tr>
+    <tr><th>Verify</th><td>Sum the deduped postage by month. Compare to your 3PL invoice for the period. (Match rate to Order IDs is ~50%; the rest are RESHIP / sample / outside-window orders — all real costs.)</td></tr>
+  </tbody>
+</table>
+
+<h2 id="monthly-inputs">5. Monthly Inputs — manual values</h2>
+<p>Anything that isn't in a TikTok export goes here. Each field is a single monthly total. The aggregator <strong>flat-spreads</strong> each value across the days of that month into the Daily P&amp;L.</p>
+<table class="table table-sm table-bordered">
+  <thead><tr><th>Field</th><th>What it is</th><th>Where you get it</th></tr></thead>
+  <tbody>
+    <tr><td><code>team_spend</code></td><td>Payroll / contractor cost</td><td>Bookkeeping / payroll provider</td></tr>
+    <tr><td><code>software_tools</code></td><td>SaaS subscriptions (Shopify, ChatGPT, etc.)</td><td>Credit-card statement</td></tr>
+    <tr><td><code>monthly_retainers</code></td><td>Fixed creator/agency retainers</td><td>Internal contracts</td></tr>
+    <tr><td><code>creatify</code></td><td>Creator sourcing platform cost</td><td>Creatify invoice</td></tr>
+    <tr><td><code>off_platform_1pct</code></td><td>1% method commission for off-platform creators</td><td>Internal calc (1% of off-platform-driven revenue)</td></tr>
+    <tr><td><code>other_ga</code></td><td>Misc G&amp;A — anything not otherwise categorized</td><td>Bookkeeping</td></tr>
+    <tr><td><code>tt_promo_credits</code></td><td>Free TikTok ad credits applied that month</td><td>Ads Manager → Billing → Credits</td></tr>
+    <tr><td><code>cost_ship_to_fbt</code></td><td>Outbound shipping seller→FBT warehouse</td><td>3PL or freight invoice</td></tr>
+    <tr><td><code>cost_ship_to_customer</code></td><td>Postage to ship orders to customers (fallback when no Seller Shipping CSV is uploaded for that month)</td><td>3PL postage report</td></tr>
+    <tr><td colspan="3" class="text-muted small"><em>FBT fields below are populated automatically when an FBT Billing XLSX is uploaded for that month:</em></td></tr>
+    <tr><td><code>fbt_hub_placement</code></td><td>FBT hub placement fee</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_storage</code></td><td>Monthly storage fee</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_inbound_shipping</code></td><td>Inbound shipping fee</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_inbound_incidents</code></td><td>Inbound incident charges</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_booking_noncomp</code></td><td>Inbound booking non-compliance</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_routing_noncomp</code></td><td>Routing non-compliance</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_outbound_noshow</code></td><td>Outbound appointment no-show</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_delayed_response</code></td><td>Delayed response fee</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_disposal</code></td><td>Disposal fee</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_return_shipping</code></td><td>Return shipping fee (VAS)</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_return_seller_handling</code></td><td>Return-to-seller handling</td><td>FBT Billing XLSX</td></tr>
+    <tr><td><code>fbt_inbound_return_op</code></td><td>Inbound return operation</td><td>FBT Billing XLSX</td></tr>
+  </tbody>
+</table>
+
+<h2 id="cogs">6. COGS — SKU cost lookup</h2>
+<p>The <strong>COGS</strong> page is a table of <code>SKU ID → cost-per-order</code>. When Manage Orders is imported, each line's COGS is computed as <code>quantity × COGSItem.cogs_per_order</code> and stored on the Order row.</p>
+<p><strong>Initial seed:</strong> the management command <code>seed_cogs</code> runs on every deploy (in <code>build.sh</code>) — it creates COGS rows for known SKUs with default costs. It does NOT overwrite costs you've edited on the page.</p>
+<p><strong>To update a cost:</strong> edit the value inline on the COGS page and click Save. New imports will use the new value; <em>old imported orders keep the COGS they were imported with</em>. To recompute old orders with the new costs, wipe Orders and re-import (see Admin section).</p>
+<p><strong>Adding a new SKU:</strong> add a row to <code>core/management/commands/seed_cogs.py</code> and push — Render runs <code>seed_cogs</code> on every deploy. Or insert directly via Django shell.</p>
+
+<h2 id="line-items">7. P&amp;L line items — source &amp; verification</h2>
+<p>Every row in the P&amp;L, in display order. Badge shows the data source.</p>
+
+<h3>REVENUE</h3>
+<div class="line-item"><div class="li-name">Gross Sales <span class="badge-src badge-orders">Manage Orders</span></div><div class="li-meta">Sum of <code>SKU Subtotal Before Discount</code>, grouped by <code>Created Time</code> date, excluding Canceled.</div><div class="li-desc">Verify by filtering the CSV to one day and summing the column.</div></div>
+<div class="line-item"><div class="li-name">Less: Promos &amp; Discounts <span class="badge-src badge-orders">Manage Orders</span></div><div class="li-meta">Sum of <code>SKU Seller Discount</code> (sign-flipped negative).</div><div class="li-desc">These are seller-funded discounts only. Platform discounts are separate.</div></div>
+<div class="line-item"><div class="li-name">GMV <span class="badge-src badge-analytics">Shop Analytics</span> <span class="badge-src badge-calc">CALC</span></div><div class="li-meta">Override: uses Shop Analytics value when available. Fallback: <code>Gross Sales + Promos</code>.</div><div class="li-desc">Should match TikTok's portal GMV to the dollar when Shop Analytics is uploaded.</div></div>
+<div class="line-item"><div class="li-name">Less: Refunds <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Sum of <code>Gross sales refund</code> + <code>Seller discount refund</code>, attributed to Order Created Date.</div><div class="li-desc">Stored negative. Refunds for orders from previous months land on the original order's day, not the refund's settlement day.</div></div>
+<div class="line-item"><div class="li-name">NET REVENUE <span class="badge-src badge-calc">CALC</span></div><div class="li-meta"><code>= GMV + Refunds</code></div></div>
+
+<h3>COGS &amp; FULFILLMENT</h3>
+<div class="line-item"><div class="li-name">COGS <span class="badge-src badge-cogs">COGS table</span> <span class="badge-src badge-orders">Manage Orders</span></div><div class="li-meta"><code>quantity × COGSItem.cogs_per_order</code>, sign-flipped negative.</div><div class="li-desc">If a SKU is missing from the COGS table, COGS for that line is 0 and the SKU is logged in ImportLog notes as "unmapped".</div></div>
+<div class="line-item"><div class="li-name">FBT Fulfillment Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement column <code>FBT fulfillment fee</code> (Order rows only).</div></div>
+<div class="line-item"><div class="li-name">FBT Fulfillment Reimbursement <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement column <code>FBT fulfillment fee reimbursement</code>.</div></div>
+<div class="line-item"><div class="li-name">Seller Shipping <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement column <code>Shipping</code> — the shipping charge captured at order time (seller-shipped orders).</div></div>
+<div class="line-item"><div class="li-name">TT Shipping Subsidy (net) <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Sum of <code>TikTok Shop shipping incentive</code> + <code>Shipping fee subsidy</code> + <code>Customer shipping fee offset</code>.</div></div>
+<div class="line-item"><div class="li-name">Cost to Ship to FBT <span class="badge-src badge-monthly">Monthly Input</span></div><div class="li-meta">Flat-spread across days of the month.</div><div class="li-desc">No file import — enter total on Monthly Inputs tab. Sum your inbound-shipment invoices for the month.</div></div>
+<div class="line-item"><div class="li-name">Cost to Ship to Customer <span class="badge-src badge-ship">Seller Shipping CSV</span> <span class="badge-src badge-monthly">Monthly Input</span></div><div class="li-meta">If Seller Shipping CSV is uploaded for the month: real per-day sums of <code>postage</code>. Otherwise: flat-spread of the Monthly Input value.</div></div>
+<div class="line-item"><div class="li-name">Logistics Reimbursement <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement row type <code>Logistics reimbursement</code> → <code>Adjustment amount</code>.</div></div>
+<div class="line-item"><div class="li-name">FBT Hub Placement / Storage / Inbound Shipping / Incidents / Booking Non-Comp / Routing Non-Comp / Outbound No-Show / Delayed Response / Disposal / Return Shipping (VAS) / Return-to-Seller Handling / Inbound Return Operation <span class="badge-src badge-fbt">FBT Billing</span></div><div class="li-meta">All twelve FBT fee lines come from the FBT Billing XLSX (or manual Monthly Input).</div><div class="li-desc">Each line in the FBT Billing file maps to one MonthlyInput field via <code>FBT_LINE_TO_FIELD</code> in <code>importers.py</code>.</div></div>
+<div class="line-item"><div class="li-name">FBT Warehouse Compensation <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement row type <code>FBT warehouse compensation</code>.</div></div>
+
+<h3>Platform Fees</h3>
+<div class="line-item"><div class="li-name">Referral Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement <code>Referral fee</code> column.</div></div>
+<div class="line-item"><div class="li-name">Refund Admin Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement <code>Refund administration fee</code>.</div></div>
+<div class="line-item"><div class="li-name">Campaign Service Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement <code>Campaign service fee</code>.</div></div>
+<div class="line-item"><div class="li-name">Violation Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Adjustment with row type <code>Violation fee (settlement fee)</code>.</div></div>
+<div class="line-item"><div class="li-name">TikTok Shop Reimb <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Row type <code>TikTok Shop reimbursement</code>.</div></div>
+<div class="line-item"><div class="li-name">Rebate <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Row type <code>Rebate</code>.</div></div>
+<div class="line-item"><div class="li-name">Co-funded Promotion (seller-funded) <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement <code>Co-funded promotion (seller-funded)</code> column.</div></div>
+<div class="line-item"><div class="li-name">GROSS PROFIT <span class="badge-src badge-calc">CALC</span></div><div class="li-meta">= Net Revenue + all COGS/Fulfillment/Platform lines above.</div></div>
+
+<h3>MARKETING</h3>
+<div class="line-item"><div class="li-name">Ad Spend — Direct to TikTok (cash) <span class="badge-src badge-ads">Ad Spend</span></div><div class="li-meta">Sign-flipped negative.</div><div class="li-desc">Verify monthly total matches Ads Manager spend tile.</div></div>
+<div class="line-item"><div class="li-name">Less: TT Promo Credits <span class="badge-src badge-monthly">Monthly Input</span></div><div class="li-meta">Positive sign (reduces ad cost).</div></div>
+<div class="line-item"><div class="li-name">Less: TBSM Savings (6%) <span class="badge-src badge-monthly">TBD</span></div><div class="li-meta">Currently always 0 — auto-6%-calc was removed pending a manual / file-based source.</div><div class="li-desc">When you figure out the real TBSM source, wire it in (likely a new MonthlyInput field).</div></div>
+<div class="line-item"><div class="li-name">Total Ad Spend <span class="badge-src badge-calc">CALC</span></div><div class="li-meta"><code>= Ad Spend + TT Promo Credits</code> (TBSM zero for now).</div></div>
+<div class="line-item"><div class="li-name">Platform (Affiliate Commission) <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Sum of <code>Affiliate Commission</code> + <code>Affiliate partner commission</code> + <code>Affiliate Shop Ads commission</code> + <code>Affiliate Partner shop ads commission</code>.</div></div>
+<div class="line-item"><div class="li-name">Off-Platform (1% method) <span class="badge-src badge-monthly">Monthly Input</span></div></div>
+<div class="line-item"><div class="li-name">Monthly Retainers <span class="badge-src badge-monthly">Monthly Input</span></div></div>
+<div class="line-item"><div class="li-name">Creatify (creator-sourcing) <span class="badge-src badge-monthly">Monthly Input</span></div></div>
+<div class="line-item"><div class="li-name">TOTAL MARKETING <span class="badge-src badge-calc">CALC</span></div><div class="li-meta">= Total Ad Spend + Affiliate + Off-Platform + Retainers + Creatify.</div></div>
+
+<h3>SG&amp;A</h3>
+<div class="line-item"><div class="li-name">Team Spend <span class="badge-src badge-monthly">Monthly Input</span></div></div>
+<div class="line-item"><div class="li-name">Software &amp; Tools <span class="badge-src badge-monthly">Monthly Input</span></div></div>
+<div class="line-item"><div class="li-name">Other G&amp;A <span class="badge-src badge-monthly">Monthly Input</span></div></div>
+<div class="line-item"><div class="li-name">Chargebacks <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Row type <code>Chargeback</code>.</div></div>
+<div class="line-item"><div class="li-name">Unclassified Adjustments <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Catch-all: any Settlement row type not in the known mapping lands here, with the type name logged to ImportLog notes. If you see growth in this line, look at History → notes to see what new types TikTok introduced, then add them to <code>TYPE_TO_FIELD</code> in <code>importers.py</code>.</div></div>
+<div class="line-item"><div class="li-name">TOTAL SG&amp;A <span class="badge-src badge-calc">CALC</span></div></div>
+
+<h3>Bottom line</h3>
+<div class="line-item"><div class="li-name">NET PROFIT <span class="badge-src badge-calc">CALC</span></div><div class="li-meta"><code>= GROSS PROFIT + TOTAL MARKETING + TOTAL SG&amp;A</code> (TOTAL MARKETING and TOTAL SG&amp;A are already negative.)</div></div>
+
+<h2 id="calc">8. How the numbers roll up</h2>
+<ol>
+  <li><strong>Daily P&amp;L</strong> (<code>compute_daily_pnl</code> in <code>aggregator.py</code>) for a date range:
+    <ol type="a">
+      <li>Aggregate <code>Order</code> rows by <code>created_date</code> → Gross / Promos / COGS.</li>
+      <li>Aggregate <code>SettlementRow</code> by <code>order_created_date</code> → all the settlement-driven lines.</li>
+      <li>Override GMV with <code>AnalyticsDay.gmv</code> if present.</li>
+      <li>Set raw Ad Spend from <code>AdSpendDay.cost</code> (negated).</li>
+      <li>For each Monthly Input field with an overlay mapping, set the day's value to <code>sign × monthly / days_in_month</code>.</li>
+      <li>Override Cost to Ship to Customer with real daily sums from <code>SellerShipmentCost</code> if any rows exist for that month.</li>
+      <li>Compute derived rows: GMV (fallback), Net Revenue, Gross Profit, Total Ad Spend, Total Marketing, Total SG&amp;A, Net Profit.</li>
+    </ol>
+  </li>
+  <li><strong>Monthly P&amp;L</strong> (<code>compute_monthly_pnl</code>) loops months Jan-Dec, runs <code>compute_daily_pnl</code> for each, sums daily values per row.</li>
+  <li><strong>Render</strong>: views.py builds row-by-row data using <code>PNL_ROW_LAYOUT</code> (the canonical row order + types: section / sub / row / total / blank), passes to templates.</li>
+</ol>
+
+<h2 id="deploy">9. Deploying code changes</h2>
+<ol>
+  <li>Clone the repo: <code>git clone https://github.com/Harambe99/pnl-rosabella.git</code></li>
+  <li>Make changes locally.</li>
+  <li>If you changed models: <code>python manage.py makemigrations</code> and commit the migration file.</li>
+  <li><code>git add &amp;&amp; git commit &amp;&amp; git push origin main</code></li>
+  <li>Render auto-deploys on push to <code>main</code> (~2-3 min build). The <code>build.sh</code> runs migrations and seed_cogs automatically.</li>
+  <li>If auto-deploy is misbehaving, trigger manually from the Render dashboard or via API:
+    <pre><code>curl -X POST -H "Authorization: Bearer $RENDER_API_KEY" \
+  https://api.render.com/v1/services/&lt;srv_id&gt;/deploys</code></pre>
+  </li>
+  <li>Verify with: <code>curl https://pnl-rosabella.onrender.com/health/</code> → returns <code>OK</code>.</li>
+</ol>
+<p><strong>Local dev:</strong> <code>pip install -r requirements.txt</code>, set <code>APP_PASSWORD</code> and <code>DATABASE_URL</code> env vars (use a local Postgres or SQLite), <code>python manage.py migrate</code>, <code>python manage.py seed_cogs</code>, <code>python manage.py runserver</code>.</p>
+
+<h2 id="admin">10. Admin / data operations</h2>
+<h4>Wipe imported data</h4>
+<p>The <code>/wipe/</code> endpoint clears imported data without touching COGS or Monthly Inputs. POST only, protected by the shared-password middleware.</p>
+<pre><code># Wipe everything
+curl -X POST -b "sessionid=&lt;your_session&gt;" https://pnl-rosabella.onrender.com/wipe/
+
+# Wipe a single source
+curl -X POST "https://pnl-rosabella.onrender.com/wipe/?what=orders"
+# Options: orders | settlement | analytics | ad_spend | seller_shipping | all</code></pre>
+<p>To wipe COGS or Monthly Inputs, use Django admin or shell — the wipe endpoint deliberately won't touch those.</p>
+
+<h4>Adding a new admin user</h4>
+<p>There are no per-user accounts. Everyone shares one password (<code>APP_PASSWORD</code> env var on Render). To rotate: change the env var in Render dashboard → service restarts automatically → tell users the new password.</p>
+
+<h4>Database access</h4>
+<p>Render dashboard → Postgres service → connect via psql with the internal/external connection string. Tables are prefixed <code>core_</code> (e.g., <code>core_order</code>, <code>core_settlementrow</code>).</p>
+
+<h2 id="handoff">11. For the next maintainer / AI agent</h2>
+<p>If you're new to this project:</p>
+<ol>
+  <li><strong>Read this README top-to-bottom.</strong> It explains every line item, file, and calculation.</li>
+  <li><strong>Clone the repo</strong> and skim <code>core/models.py</code>, <code>core/importers.py</code>, <code>core/aggregator.py</code> — those three files contain ~95% of the logic.</li>
+  <li><strong>To extend</strong>: most new features are either (a) a new importer (add to <code>importers.py</code> + new model in <code>models.py</code> + migration + Upload card + aggregator wiring), or (b) a new derived row (add to <code>compute_daily_pnl</code> and <code>PNL_ROW_LAYOUT</code>).</li>
+  <li><strong>To feed this to an AI agent</strong>: clone the repo, paste the entire <code>core/</code> folder into the agent's context along with this README's URL, and ask it to make the change. The codebase is small (~1,500 lines) and fits comfortably in any modern model's context window.</li>
+</ol>
+
+<h4>Inheriting hosting</h4>
+<p>The Render account, GitHub repo, and Postgres database are currently owned by an individual account. To transfer ownership:</p>
+<ul>
+  <li><strong>GitHub repo</strong>: transfer to the company org via repo settings → Transfer ownership.</li>
+  <li><strong>Render service</strong>: invite the new owner as a workspace member, then transfer service ownership (Render docs → Workspaces).</li>
+  <li><strong>Domain</strong>: currently uses Render's free subdomain (<code>pnl-rosabella.onrender.com</code>). If you want a custom domain, add it in the Render service's Custom Domains tab and point a CNAME at <code>pnl-rosabella.onrender.com</code>.</li>
+  <li><strong>Costs</strong>: ~$32/mo (Render Web Service Standard $25 + Postgres Basic $7). Billed monthly to whoever owns the Render workspace.</li>
+</ul>
+
+<h2 id="gotchas">12. Known gotchas &amp; design decisions</h2>
+<ul>
+  <li><strong>Settlement files MUST be parsed with pandas, not openpyxl read-only.</strong> openpyxl read-only mode has a bug that returns only ~5 rows from the iterator. pandas is also more memory-efficient (~175 MB vs 500 MB+).</li>
+  <li><strong>Date format is auto-detected per file.</strong> Shop Analytics uses DD/MM/YYYY, Ad Spend uses MM/DD/YYYY, Manage Orders uses MM/DD/YYYY with AM/PM. The <code>_to_date</code> helper in <code>importers.py</code> pre-scans the column for any day &gt; 12 to disambiguate.</li>
+  <li><strong>GMV does NOT include refunds.</strong> Historical bug: refunds used to be added to GMV, double-counting in Net Revenue. Fixed: GMV = Gross + Promos (post-discount, pre-refund). Net Revenue = GMV + Refunds.</li>
+  <li><strong>Settlement rows attribute to Order Created Date, not Settlement Date.</strong> This is what makes late settlements (June file containing April orders) populate April rows correctly.</li>
+  <li><strong>Seller Shipping CSV has duplicated postage across multi-SKU shipments.</strong> Each line of a 5-SKU shipment repeats the same postage value. The importer dedups on <code>shipment_number</code> so only one is counted.</li>
+  <li><strong>Only ~50% of Seller Shipping reference_numbers match Order IDs in the export.</strong> The other 50% are RESHIP, sample, or out-of-window orders — all real costs. Don't try to "fix" this by tightening the match; the postage total is the trusted number.</li>
+  <li><strong>Section / sub / blank rows render empty cells, NOT dashes.</strong> Dashes only appear on data rows with value 0 or null.</li>
+  <li><strong>The /wipe/ endpoint is CSRF-exempt</strong> so it can be hit via curl. It's still gated by the shared-password middleware.</li>
+  <li><strong>Single gunicorn worker, 4 threads, 900s timeout.</strong> The threads + long timeout are needed because large file imports (37 K+ settlement rows) take minutes; a single worker keeps memory bounded.</li>
+  <li><strong>TBSM 6% auto-calc was removed.</strong> Was previously hardcoded as <code>Ad Spend × 0.06</code>. Now zero — TBD how to source the real value (likely a new MonthlyInput field).</li>
+</ul>
+
+<hr class="my-5">
+<p class="text-muted small mb-5">If you find something in the code or docs that contradicts the live behavior, the code is the source of truth — please update this README so the next person isn't misled.</p>
+
+</div>
+{% endblock %}
