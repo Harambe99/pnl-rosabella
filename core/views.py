@@ -45,6 +45,9 @@ def _pct(v, nr):
 def dashboard(request):
     try:
         year = int(request.GET.get('year', 2026))
+        # Sanity-clamp to a sensible range so date() construction doesn't blow up
+        if year < 2020 or year > 2099:
+            return redirect('dashboard')
     except (TypeError, ValueError):
         return redirect('dashboard')
     monthly = compute_monthly_pnl(year)
@@ -82,6 +85,8 @@ def daily_view(request):
     yyyy_mm = request.GET.get('month') or date.today().strftime('%Y-%m')
     try:
         y, m = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
+        if y < 2020 or y > 2099 or m < 1 or m > 12:
+            return redirect('daily')
     except Exception:
         return redirect('daily')
     start = date(y, 1, 1)
