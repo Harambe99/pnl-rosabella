@@ -1,8 +1,8 @@
 {% extends "core/base.html" %}
 {% block title %}COGS Table{% endblock %}
 {% block content %}
-<h2 class="mb-3">COGS Lookup Table</h2>
-<p class="text-muted">Edit any COGS value and click Save. Future imports use the latest values.</p>
+<h2 class="mb-3">COGS — cost per SKU</h2>
+<p class="text-muted">Edit any cost and Save. New imports will use the updated value. Old orders keep the cost they were imported with.</p>
 <form method="post">
 {% csrf_token %}
 <table class="table table-sm">

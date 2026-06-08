@@ -2,7 +2,7 @@
 {% block title %}Upload Files{% endblock %}
 {% block content %}
 <h2 class="mb-4">Upload Files</h2>
-<p class="text-muted">Drag-drop or click each card to upload that file type. Imports are append-only with dedup — re-uploading the same file is safe.</p>
+<p class="text-muted">Pick a card, choose the file, hit Upload. Re-uploading the same file is safe — duplicates get skipped.</p>
 
 <div class="row g-3 mb-4">
   {% for kind, name, hint, accept in upload_kinds %}{% endfor %}

@@ -2,8 +2,8 @@
 {% block title %}Monthly Inputs{% endblock %}
 {% block content %}
 <h2 class="mb-3">Monthly Inputs</h2>
-<p class="text-muted">Only fields with <strong>no export source</strong> live here. Each value flat-spreads across the month into Daily P&amp;L. Empty fields are left alone — only fields you fill in get updated. If a month already has saved values, you'll be warned before overwriting.</p>
-<p class="text-muted small"><em>FBT line items and Cost to Ship to Customer are populated by the <strong>FBT Billing XLSX</strong> and <strong>Seller Shipping CSV</strong> uploads — they appear directly in the Daily and Monthly P&amp;L.</em></p>
+<p class="text-muted">Manual numbers only. Each value spreads evenly across the days of the month in the Daily P&amp;L. Leave a field blank to keep its current value. If the month already has data, you'll see a warning before overwriting.</p>
+<p class="text-muted small"><em>FBT fees and Cost to Ship to Customer don't go here — they come from the FBT Billing XLSX and Seller Shipping CSV uploads.</em></p>
 
 <h4 class="mt-4">Add or edit a month</h4>
 <form method="post" id="mi-form" class="row g-2 mb-3">

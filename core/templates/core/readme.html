@@ -36,8 +36,8 @@
 
 <div class="readme">
 
-<h1 class="mb-2">PnL Rosabella — System Documentation</h1>
-<p class="text-muted">Living reference for anyone who needs to understand, verify, deploy, or extend this P&amp;L app. Read top-to-bottom on first pass; use the TOC after that.</p>
+<h1 class="mb-2">PnL Rosabella — README</h1>
+<p class="text-muted">How the app works, what each line means, and what to do when something looks off. Read top-to-bottom the first time. Use the TOC after.</p>
 
 <div class="toc">
   <strong>Contents</strong>
@@ -55,15 +55,15 @@
   <a href="#gotchas">12. Known gotchas &amp; design decisions</a>
 </div>
 
-<h2 id="overview">1. What this is &amp; how it works</h2>
-<p>This is a multi-user web-based Profit &amp; Loss tracker for a TikTok Shop business. It replaces an earlier Google Sheets workflow that suffered from date/locale bugs and formula drift.</p>
-<p>Core idea: every numeric line in the P&amp;L is either</p>
+<h2 id="overview">1. What this is</h2>
+<p>A web app that tracks the P&amp;L for a TikTok Shop. Replaces the old Google Sheets version (date bugs, formula drift, no real dedup).</p>
+<p>Every line on the P&amp;L comes from one of three places:</p>
 <ol>
-  <li><strong>Parsed from a TikTok export file</strong> (5 file types), or</li>
-  <li><strong>Looked up from the COGS table</strong> (per-SKU costs), or</li>
-  <li><strong>Manually entered on the Monthly Inputs tab</strong> (overheads &amp; FBT billing the platform exports don't surface clearly).</li>
+  <li>An uploaded TikTok export file.</li>
+  <li>The COGS table (per-SKU costs).</li>
+  <li>The Monthly Inputs tab (manual entries for things with no export).</li>
 </ol>
-<p>The aggregator pulls all three sources together, computes derived rows (GMV, Net Revenue, Gross Profit, Net Profit, etc.), and renders Daily and Monthly views.</p>
+<p>The aggregator combines them and shows you Daily and Monthly views.</p>
 
 <h2 id="stack">2. Tech stack &amp; hosting</h2>
 <table class="table table-sm table-bordered">
@@ -116,7 +116,7 @@
 </table>
 
 <h2 id="imports">4. The 6 file imports</h2>
-<p>All uploads are <strong>append-only with dedup</strong> — re-uploading the same file is safe. Each importer logs to the <code>ImportLog</code> table (visible on the History page).</p>
+<p>Re-uploading the same file is always safe — duplicates get skipped. Every upload logs to the History page.</p>
 
 <h3>4.1 Manage Orders <span class="badge-src badge-orders">CSV</span></h3>
 <table class="table table-sm">
@@ -127,7 +127,7 @@
     <tr><th>Date format</th><td><code>MM/DD/YYYY HH:MM:SS AM/PM</code> (US locale)</td></tr>
     <tr><th>Dedup key</th><td><code>(Order ID, SKU ID)</code></td></tr>
     <tr><th>Powers</th><td>Gross Sales, Promos &amp; Discounts, COGS (× COGSItem lookup)</td></tr>
-    <tr><th>Verify</th><td>Pick any date in Daily P&amp;L. Open the CSV, filter Created Time to that date, exclude Canceled, sum <code>SKU Subtotal Before Discount</code>. Should match the <strong>Gross Sales</strong> row.</td></tr>
+    <tr><th>Check</th><td>Filter the CSV to one day, exclude Canceled, sum <code>SKU Subtotal Before Discount</code>. Matches the Gross Sales row.</td></tr>
   </tbody>
 </table>
 
@@ -140,8 +140,8 @@
     <tr><th>Key columns</th><td><code>Order/adjustment ID</code>, <code>Statement ID</code>, <code>Type</code>, <code>Order created date</code>, <code>Statement date</code>, plus ~20 fee/refund/reimbursement columns</td></tr>
     <tr><th>Dedup key</th><td><code>(Order ID, Statement ID, Type)</code></td></tr>
     <tr><th>Powers</th><td>Refunds, Referral Fee, Affiliate Commission, Campaign Service Fee, Shipping, TT Shipping Subsidy, Co-funded Promo, Chargebacks, Violation Fee, FBT Warehouse Compensation, Logistics Reimbursement, Rebate, TikTok Shop Reimb, Unclassified Adjustments</td></tr>
-    <tr><th>Attribution</th><td>Rows are bucketed into the day the <em>order was created</em>, not the settlement date — so a May settlement file backfills April rows naturally.</td></tr>
-    <tr><th>Verify</th><td>Filter the XLSX to one Order Created Date, sum any fee column, compare to the equivalent row on that day's Daily P&amp;L.</td></tr>
+    <tr><th>Attribution</th><td>Rows count on the day the order was created, not the settlement date. May's file backfills April.</td></tr>
+    <tr><th>Check</th><td>Filter to one Order Created Date, sum a fee column, compare to the matching row on that day's Daily P&amp;L.</td></tr>
   </tbody>
 </table>
 
@@ -153,8 +153,8 @@
     <tr><th>Key columns</th><td>Date (col A), GMV (col B), Orders (col C), Items Sold (col E)</td></tr>
     <tr><th>Date format</th><td><code>DD/MM/YYYY</code> (auto-detected)</td></tr>
     <tr><th>Dedup key</th><td><code>date</code> (uses <code>update_or_create</code>, so re-upload overwrites)</td></tr>
-    <tr><th>Powers</th><td>Overrides the derived <code>GMV = Gross + Promos</code> with TikTok's authoritative value. Match-to-portal verification.</td></tr>
-    <tr><th>Verify</th><td>The monthly GMV total should match the number TikTok shows in the Analytics dashboard for that month, to the dollar.</td></tr>
+    <tr><th>Powers</th><td>Overrides the computed GMV with TikTok's portal value.</td></tr>
+    <tr><th>Check</th><td>Monthly GMV total should match the Analytics dashboard to the dollar.</td></tr>
   </tbody>
 </table>
 
@@ -167,7 +167,7 @@
     <tr><th>Date format</th><td><code>MM/DD/YYYY</code> (auto-detected)</td></tr>
     <tr><th>Dedup key</th><td><code>date</code> (overwrites on re-upload)</td></tr>
     <tr><th>Powers</th><td>Ad Spend — Direct to TikTok (cash) line</td></tr>
-    <tr><th>Verify</th><td>Monthly total should match the "Spend" tile in Ads Manager for the same date range.</td></tr>
+    <tr><th>Check</th><td>Monthly total should match the Spend tile in Ads Manager.</td></tr>
   </tbody>
 </table>
 
@@ -178,8 +178,8 @@
     <tr><th>Format</th><td>XLSX with line-item rows (Hub Placement, Storage, Inbound Shipping, etc.)</td></tr>
     <tr><th>Requires</th><td>You must enter the billing period as <code>YYYY-MM</code> in the form when uploading</td></tr>
     <tr><th>Dedup key</th><td>Period — overwrites Monthly Input fields for that month</td></tr>
-    <tr><th>Powers</th><td>FBT Hub Placement, Storage, Inbound Shipping, Incidents, Booking Non-Comp, Routing Non-Comp, Outbound No-Show, Delayed Response, Disposal, Return Shipping, Return-to-Seller Handling, Inbound Return Operation — all of which are <em>monthly</em> billed and stored in MonthlyInput.</td></tr>
-    <tr><th>Verify</th><td>Each line in the FBT XLSX maps to a column on the Monthly Inputs page for that month. Check the saved values match.</td></tr>
+    <tr><th>Powers</th><td>All 12 FBT fee lines — Hub Placement, Storage, Inbound Shipping, Incidents, Booking N/C, Routing N/C, Outbound No-Show, Delayed Response, Disposal, Return Shipping, Return-to-Seller Handling, Inbound Return Operation.</td></tr>
+    <tr><th>Check</th><td>Each line in the XLSX maps to one of the 12 fields. Compare against the FBT line items in the Monthly P&amp;L.</td></tr>
   </tbody>
 </table>
 
@@ -192,9 +192,8 @@
     <tr><th>Optional columns</th><td><code>channel_name</code>, <code>reference_number</code>, <code>carrier_service</code>, <code>tracking</code></td></tr>
     <tr><th>Date format</th><td><code>Mon D, YYYY</code> (e.g., <code>Apr 1, 2026</code>)</td></tr>
     <tr><th>Dedup key</th><td><code>shipment_number</code> — prevents double-counting postage on multi-SKU shipments</td></tr>
-    <tr><th>Powers</th><td><strong>Cost to Ship to Customer</strong> — overrides the Monthly Inputs flat-spread for any month that has shipment rows.</td></tr>
-    <tr><th>Override rule</th><td>If <em>any</em> SellerShipmentCost rows exist for a month, that month's Cost to Ship to Customer comes from real daily sums and the Monthly Input value is ignored. Months with no shipment data continue to use Monthly Input.</td></tr>
-    <tr><th>Verify</th><td>Sum the deduped postage by month. Compare to your 3PL invoice for the period. (Match rate to Order IDs is ~50%; the rest are RESHIP / sample / outside-window orders — all real costs.)</td></tr>
+    <tr><th>Powers</th><td>Cost to Ship to Customer — the only source for this line.</td></tr>
+    <tr><th>Check</th><td>Sum deduped postage by month. Should match your 3PL invoice. (Only ~50% of refs match Order IDs — the rest are reshipments, samples, or out-of-window orders. The total is still right.)</td></tr>
   </tbody>
 </table>
 
