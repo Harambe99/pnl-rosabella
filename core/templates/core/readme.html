@@ -123,6 +123,45 @@
 <h2 id="imports">4. The 6 file imports</h2>
 <p>Re-uploading the same file is always safe — duplicates get skipped. Every upload logs to the History page.</p>
 
+<h4>Filename quick-reference</h4>
+<p>So you can tell at a glance which file is which when they pile up in your Downloads folder. The date in each filename is the time of export, not the data's date range.</p>
+<table class="table table-sm table-bordered">
+  <thead><tr><th>#</th><th>Export</th><th>Filename pattern</th><th>Example</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td><td>Manage Orders</td>
+      <td><code>All order-YYYY-MM-DD-HH_MM.csv</code></td>
+      <td><code>All order-2026-06-05-23_57.csv</code></td>
+    </tr>
+    <tr>
+      <td>2</td><td>Settlement</td>
+      <td><code>income_YYYYMMDDHHMMSS(UTC-X).xlsx</code></td>
+      <td><code>income_20260608082941(UTC-4).xlsx</code></td>
+    </tr>
+    <tr>
+      <td>3</td><td>Shop Analytics</td>
+      <td><code>Shop Analytics_Key metrics_YYYYMMDD.xlsx</code></td>
+      <td><code>Shop Analytics_Key metrics_20260608.xlsx</code></td>
+    </tr>
+    <tr>
+      <td>4</td><td>Ad Spend</td>
+      <td><code>Campaign overview data YYYYMMDD - YYYYMMDD.xlsx</code></td>
+      <td><code>Campaign overview data 20260401 - 20260430.xlsx</code></td>
+    </tr>
+    <tr>
+      <td>5</td><td>FBT Billing</td>
+      <td><code>Download Logistics Cost Overview_YYYY-MM-DDTHH_MM_SSZ.xlsx</code></td>
+      <td><code>Download Logistics Cost Overview_2026-06-08T12_44_12Z.xlsx</code></td>
+    </tr>
+    <tr>
+      <td>6</td><td>Seller Shipping</td>
+      <td>Varies by 3PL — importer only requires <code>shipment_number</code>, <code>shipped_date</code>, <code>postage</code> headers</td>
+      <td><code>TTS SELLER SHIPPING BREAKDOWN.csv</code></td>
+    </tr>
+  </tbody>
+</table>
+<p class="text-muted small">Notes: re-downloading to the same folder produces <code>(1)</code>, <code>(2)</code> suffixes — harmless. Ad Spend is the only export that puts the actual data range in the filename — useful for spotting at a glance which month an Ad Spend file covers.</p>
+
 <h3>4.1 Manage Orders <span class="badge-src badge-orders">CSV</span></h3>
 <table class="table table-sm">
   <tbody>
