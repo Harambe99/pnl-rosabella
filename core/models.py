@@ -149,6 +149,18 @@ class MonthlyInput(models.Model):
         return self.month
 
 
+class MonthlyInputAudit(models.Model):
+    """One row per field-change on MonthlyInput. Lets us show 'what was changed when' history."""
+    month = models.CharField(max_length=7, db_index=True)
+    field_name = models.CharField(max_length=64)
+    old_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    new_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    changed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-changed_at']
+
+
 class ImportLog(models.Model):
     """Audit trail — what was uploaded when."""
     importer = models.CharField(max_length=32)

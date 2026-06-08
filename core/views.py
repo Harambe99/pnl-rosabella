@@ -8,7 +8,7 @@ from django.http import HttpResponse
 from django.contrib import messages
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import COGSItem, MonthlyInput, ImportLog
+from .models import COGSItem, MonthlyInput, ImportLog, MonthlyInputAudit
 from .aggregator import compute_daily_pnl, compute_monthly_pnl, PNL_ROW_LAYOUT
 from .importers import (import_manage_orders, import_settlement,
                         import_shop_analytics, import_ad_spend, import_fbt_billing,
@@ -134,18 +134,44 @@ def monthly_inputs(request):
         month = request.POST.get('month')
         if month:
             mi, _ = MonthlyInput.objects.get_or_create(month=month)
+            changes = []
             for field in MonthlyInput._meta.get_fields():
                 if field.name in ('id', 'month', 'updated_at'): continue
                 if not hasattr(field, 'attname'): continue
-                v = request.POST.get(field.name)
-                if v is not None:
-                    try: setattr(mi, field.name, Decimal(v or '0'))
-                    except: pass
+                raw = request.POST.get(field.name)
+                if raw is None or str(raw).strip() == '':
+                    continue  # empty input = leave existing value alone
+                try: new_val = Decimal(raw)
+                except: continue
+                old_val = getattr(mi, field.name) or Decimal('0')
+                if new_val != old_val:
+                    changes.append((field.name, old_val, new_val))
+                    setattr(mi, field.name, new_val)
             mi.save()
-            messages.success(request, f'Monthly inputs for {month} saved.')
+            for fname, old, new in changes:
+                MonthlyInputAudit.objects.create(month=month, field_name=fname,
+                                                 old_value=old, new_value=new)
+            if changes:
+                messages.success(request, f'{month}: {len(changes)} field(s) updated.')
+            else:
+                messages.info(request, f'{month}: no changes (all fields empty or unchanged).')
         return redirect('monthly_inputs')
     months = MonthlyInput.objects.all()
-    return render(request, 'core/monthly_inputs.html', {'months': months})
+    # Build JSON map {month: {field: value}} for the JS overwrite-warning
+    import json as _json
+    existing_data = {}
+    for m in months:
+        existing_data[m.month] = {}
+        for field in MonthlyInput._meta.get_fields():
+            if field.name in ('id', 'month', 'updated_at'): continue
+            if not hasattr(field, 'attname'): continue
+            existing_data[m.month][field.name] = str(getattr(m, field.name) or 0)
+    audits = MonthlyInputAudit.objects.all()[:100]
+    return render(request, 'core/monthly_inputs.html', {
+        'months': months,
+        'existing_json': _json.dumps(existing_data),
+        'audits': audits,
+    })
 
 
 def history(request):

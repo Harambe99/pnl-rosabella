@@ -2,12 +2,12 @@
 {% block title %}Monthly Inputs{% endblock %}
 {% block content %}
 <h2 class="mb-3">Monthly Inputs</h2>
-<p class="text-muted">Enter monthly amounts. Each value flat-spreads across days of the month into Daily P&amp;L.</p>
+<p class="text-muted">Each value flat-spreads across the month into Daily P&amp;L. <strong>Empty fields are left alone</strong> — only fields you fill in get updated. If a month already has saved values, you'll be warned before overwriting.</p>
 
 <h4 class="mt-4">Add or edit a month</h4>
-<form method="post" class="row g-2 mb-4">
+<form method="post" id="mi-form" class="row g-2 mb-3">
   {% csrf_token %}
-  <div class="col-2"><input type="text" name="month" placeholder="2026-04" pattern="\d{4}-\d{2}" class="form-control" required></div>
+  <div class="col-2"><input type="text" name="month" id="mi-month" placeholder="2026-04" pattern="\d{4}-\d{2}" class="form-control" required></div>
   <div class="col-2"><input type="number" step="0.01" name="team_spend" placeholder="Team Spend" class="form-control"></div>
   <div class="col-2"><input type="number" step="0.01" name="software_tools" placeholder="Software & Tools" class="form-control"></div>
   <div class="col-2"><input type="number" step="0.01" name="monthly_retainers" placeholder="Monthly Retainers" class="form-control"></div>
@@ -17,17 +17,36 @@
   <div class="col-2"><input type="number" step="0.01" name="tt_promo_credits" placeholder="TT Promo Credits" class="form-control"></div>
   <div class="col-2"><input type="number" step="0.01" name="cost_ship_to_fbt" placeholder="Cost Ship to FBT" class="form-control"></div>
   <div class="col-2"><input type="number" step="0.01" name="cost_ship_to_customer" placeholder="Cost Ship to Customer" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_hub_placement" placeholder="FBT Hub Placement" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_storage" placeholder="FBT Storage" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_inbound_shipping" placeholder="FBT Inbound Ship" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_inbound_incidents" placeholder="FBT Incidents" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_booking_noncomp" placeholder="FBT Booking N/C" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_routing_noncomp" placeholder="FBT Routing N/C" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_outbound_noshow" placeholder="FBT Outbound No-Show" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_delayed_response" placeholder="FBT Delayed Resp" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_disposal" placeholder="FBT Disposal" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_return_shipping" placeholder="FBT Return Ship (VAS)" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_return_seller_handling" placeholder="FBT Return-to-Seller" class="form-control"></div>
+  <div class="col-2"><input type="number" step="0.01" name="fbt_inbound_return_op" placeholder="FBT Inb Return Op" class="form-control"></div>
   <div class="col-2"><button class="btn btn-primary" type="submit">Save</button></div>
 </form>
 
-<h4>Existing months</h4>
+<div id="mi-overwrite-warn" class="alert alert-warning d-none">
+  <strong>Heads up — this month already has saved values.</strong>
+  <div id="mi-overwrite-detail" class="small mt-1"></div>
+</div>
+
+<h4 class="mt-4">Current saved values</h4>
 <div class="table-wrap">
-<table class="table table-sm">
+<table class="table table-sm table-bordered">
   <thead><tr>
     <th>Month</th><th>Team</th><th>Software</th><th>Retainers</th><th>Creatify</th>
-    <th>1% Off-Plat</th><th>Other G&A</th><th>Promo Credits</th>
-    <th>Ship FBT</th><th>Ship Customer</th>
-    <th>FBT Hub</th><th>FBT Storage</th><th>FBT Incidents</th><th>FBT Delayed</th>
+    <th>1% Off-Plat</th><th>Other G&amp;A</th><th>Promo Credits</th>
+    <th>Ship FBT</th><th>Ship Cust</th>
+    <th>FBT Hub</th><th>FBT Storage</th><th>FBT Inb Ship</th><th>FBT Incidents</th>
+    <th>FBT Bk N/C</th><th>FBT Rt N/C</th><th>FBT NoShow</th><th>FBT Delayed</th>
+    <th>FBT Disposal</th><th>FBT Ret Ship</th><th>FBT Ret Seller</th><th>FBT Inb Ret Op</th>
     <th>Updated</th>
   </tr></thead>
   <tbody>
@@ -45,14 +64,93 @@
       <td>${{ m.cost_ship_to_customer|floatformat:0 }}</td>
       <td>${{ m.fbt_hub_placement|floatformat:0 }}</td>
       <td>${{ m.fbt_storage|floatformat:0 }}</td>
+      <td>${{ m.fbt_inbound_shipping|floatformat:0 }}</td>
       <td>${{ m.fbt_inbound_incidents|floatformat:0 }}</td>
+      <td>${{ m.fbt_booking_noncomp|floatformat:0 }}</td>
+      <td>${{ m.fbt_routing_noncomp|floatformat:0 }}</td>
+      <td>${{ m.fbt_outbound_noshow|floatformat:0 }}</td>
       <td>${{ m.fbt_delayed_response|floatformat:0 }}</td>
+      <td>${{ m.fbt_disposal|floatformat:0 }}</td>
+      <td>${{ m.fbt_return_shipping|floatformat:0 }}</td>
+      <td>${{ m.fbt_return_seller_handling|floatformat:0 }}</td>
+      <td>${{ m.fbt_inbound_return_op|floatformat:0 }}</td>
       <td><small>{{ m.updated_at|date:"M d, H:i" }}</small></td>
     </tr>
   {% empty %}
-    <tr><td colspan="15" class="text-muted">No months yet.</td></tr>
+    <tr><td colspan="23" class="text-muted">No months yet.</td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+
+<h4 class="mt-4">Change history (last 100 edits)</h4>
+<table class="table table-sm">
+  <thead><tr><th>When</th><th>Month</th><th>Field</th><th>Old → New</th></tr></thead>
+  <tbody>
+  {% for a in audits %}
+    <tr>
+      <td><small>{{ a.changed_at|date:"M d, H:i" }}</small></td>
+      <td><strong>{{ a.month }}</strong></td>
+      <td><code>{{ a.field_name }}</code></td>
+      <td><span class="text-muted">${{ a.old_value|floatformat:2 }}</span> → <strong>${{ a.new_value|floatformat:2 }}</strong></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="4" class="text-muted">No edits yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{{ existing_json|json_script:"mi-existing-data" }}
+<script>
+(function(){
+  const existing = JSON.parse(document.getElementById('mi-existing-data').textContent);
+  const form = document.getElementById('mi-form');
+  const monthInp = document.getElementById('mi-month');
+  const warn = document.getElementById('mi-overwrite-warn');
+  const detail = document.getElementById('mi-overwrite-detail');
+
+  function fieldsBeingChanged(month) {
+    const existing_vals = existing[month] || {};
+    const changes = [];
+    const fields = Array.from(form.querySelectorAll('input[type=number]'));
+    for (const inp of fields) {
+      const v = inp.value.trim();
+      if (v === '') continue;
+      const newV = parseFloat(v);
+      const oldV = parseFloat(existing_vals[inp.name] || '0');
+      if (newV !== oldV) {
+        changes.push({field: inp.name, old: oldV, new: newV});
+      }
+    }
+    return changes;
+  }
+
+  function refreshWarn() {
+    const month = monthInp.value.trim();
+    if (!month || !existing[month]) { warn.classList.add('d-none'); return; }
+    warn.classList.remove('d-none');
+    const changes = fieldsBeingChanged(month);
+    if (changes.length === 0) {
+      detail.innerHTML = `Month <strong>${month}</strong> is already saved. Fill any field above to overwrite it; empty fields will be left as-is.`;
+    } else {
+      const rows = changes.map(c => `<code>${c.field}</code>: $${c.old} → <strong>$${c.new}</strong>`).join(' &nbsp;·&nbsp; ');
+      detail.innerHTML = `On Save, the following will be overwritten for <strong>${month}</strong>:<br>${rows}`;
+    }
+  }
+
+  monthInp.addEventListener('input', refreshWarn);
+  form.addEventListener('input', refreshWarn);
+
+  form.addEventListener('submit', function(e){
+    const month = monthInp.value.trim();
+    if (!month || !existing[month]) return;
+    const changes = fieldsBeingChanged(month);
+    if (changes.length === 0) return;
+    const lines = changes.map(c => `  ${c.field}: $${c.old} → $${c.new}`).join('\n');
+    if (!confirm(`Month ${month} already exists.\n\nThe following values will be overwritten:\n\n${lines}\n\nContinue?`)) {
+      e.preventDefault();
+    }
+  });
+})();
+</script>
 {% endblock %}
