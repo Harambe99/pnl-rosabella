@@ -166,11 +166,29 @@
 <table class="table table-sm">
   <tbody>
     <tr><th style="width:160px">Where to get</th><td>TikTok Seller Center → Orders → Manage Orders → Export (date range)</td></tr>
-    <tr><th>Format</th><td>CSV, one row per (Order ID, SKU ID) line</td></tr>
-    <tr><th>Key columns</th><td><code>Order ID</code>, <code>SKU ID</code>, <code>Created Time</code>, <code>Quantity</code>, <code>SKU Subtotal Before Discount</code>, <code>SKU Seller Discount</code>, <code>Order Refund Amount</code>, <code>Order Status</code></td></tr>
+    <tr><th>Format</th><td>CSV, one row per (Order ID, SKU ID) line. File has ~60 columns; we use 7.</td></tr>
+    <tr><th>Columns we use</th><td>
+      <code>Order ID</code>, <code>SKU ID</code> — dedup key<br>
+      <code>Created Time</code> — date attribution<br>
+      <code>Order Status</code> — exclude rows where status = "Canceled"<br>
+      <code>Quantity</code> — for COGS lookup (qty × per-SKU cost)<br>
+      <code>SKU Subtotal Before Discount</code> — Gross Sales line<br>
+      <code>SKU Seller Discount</code> — Less: Promos &amp; Discounts line
+    </td></tr>
+    <tr><th>Columns we ignore (and why)</th><td>
+      <code>SKU Platform Discount</code> — TikTok-funded discount, not yours. Don't subtract.<br>
+      <code>SKU Subtotal After Discount</code> — derived (Gross − Discounts), redundant.<br>
+      <code>Order Refund Amount</code> — captured but unused. Refunds come from Settlement (more accurate per-line).<br>
+      <code>Shipping Fee After Discount</code> / <code>Original Shipping Fee</code> / <code>Shipping Fee Seller Discount</code> / <code>Co-Funded Shipping Fee Discount</code> / <code>Shipping Fee Platform Discount</code> — all shipping fee fields. We pull shipping from Settlement instead (which records what TikTok actually deducted from your payout).<br>
+      <code>Payment platform discount</code> — TikTok-funded, not your cost.<br>
+      <code>Retail Delivery Fee</code> / <code>Taxes</code> — collected from customer and remitted; don't affect your P&amp;L.<br>
+      <code>Order Amount</code> — sum of product + shipping + tax. Not useful since we track each separately.<br>
+      <code>Fulfillment Type</code> (FBT vs Seller-Shipped) — captured implicitly elsewhere; not used to split P&amp;L lines.<br>
+      <code>Tracking ID</code>, <code>Package ID</code>, address fields, etc. — operational, not financial.
+    </td></tr>
     <tr><th>Date format</th><td><code>MM/DD/YYYY HH:MM:SS AM/PM</code> (US locale)</td></tr>
     <tr><th>Dedup key</th><td><code>(Order ID, SKU ID)</code></td></tr>
-    <tr><th>Powers</th><td>Gross Sales, Promos &amp; Discounts, COGS (× COGSItem lookup)</td></tr>
+    <tr><th>Powers</th><td>Gross Sales, Promos &amp; Discounts, COGS</td></tr>
     <tr><th>Check</th><td>Filter the CSV to one day, exclude Canceled, sum <code>SKU Subtotal Before Discount</code>. Matches the Gross Sales row.</td></tr>
   </tbody>
 </table>
@@ -291,7 +309,7 @@
   <div class="li-from"><b>From:</b> the <code>SKU Seller Discount</code> column of the same Manage Orders CSV, grouped by created-date.</div>
   <div class="li-formula"><b>Formula:</b> -1 × sum(SKU Seller Discount). Stored negative so it visually subtracts.</div>
   <div class="li-why"><b>Why only seller discount:</b> TikTok separates seller-funded discounts (you paid for them) from platform-funded discounts (TikTok paid for them). We only count what you paid — TikTok's discounts don't reduce your revenue, they reduce TikTok's books.</div>
-  <div class="li-watch"><b>Watch:</b> If you participated in a co-funded campaign, your share lives in this column. TikTok's share of the same promo appears as <em>Co-funded Promotion (seller-funded)</em> further down — different line, different bucket.</div>
+  <div class="li-watch"><b>Scope:</b> this line covers <strong>SKU-level product price discounts only</strong>. Shipping-related promos (e.g., "free shipping over $30") are NOT in this line — they show up indirectly via the shipping-cost lines below (since the customer didn't pay shipping, the cost burden falls entirely on you). See the <em>Seller Shipping</em> and <em>FBT Fulfillment Fee</em> sections.</div>
 </div>
 
 <div class="line-item">
@@ -351,14 +369,21 @@
   <div class="li-name">Seller Shipping <span class="badge-src badge-settle">Settlement</span></div>
   <div class="li-from"><b>From:</b> Settlement, <code>Shipping</code> column, on Order-type rows.</div>
   <div class="li-formula"><b>Formula:</b> sum(Shipping) by order created-date.</div>
-  <div class="li-why"><b>What this is:</b> the shipping fee that was captured on the order itself. For FBT orders this is what TikTok charged the customer; for seller-shipped orders this is what the customer paid you toward shipping. It's NOT the cost you paid the 3PL — that's a separate line (Cost to Ship to Customer).</div>
+  <div class="li-why"><b>What this is:</b> TikTok's record of the shipping component charged against your payout — a cost to you, not revenue. Verified empirically: in a May settlement file with ~17K Order rows, this column was negative on 17,559 of them. For FBT orders it's the shipping fee TikTok collects from the customer that passes through to TikTok. For seller-shipped orders it's TikTok's recorded shipping liability against your payout. <strong>Not</strong> the cost you paid your 3PL — that's <em>Cost to Ship to Customer</em> below.</div>
+  <div class="li-watch"><b>Common confusion:</b> the column name "Shipping" makes it sound like revenue. It's not — TikTok deducts it from your payout.</div>
 </div>
 
 <div class="line-item">
   <div class="li-name">TT Shipping Subsidy (net) <span class="badge-src badge-settle">Settlement</span></div>
-  <div class="li-from"><b>From:</b> Settlement, three columns added together — <code>TikTok Shop shipping incentive</code> + <code>Shipping fee subsidy</code> + <code>Customer shipping fee offset</code>.</div>
+  <div class="li-from"><b>From:</b> Settlement, three columns summed — <code>TikTok Shop shipping incentive</code> + <code>Shipping fee subsidy</code> + <code>Customer shipping fee offset</code>.</div>
   <div class="li-formula"><b>Formula:</b> sum of all three, by order created-date.</div>
-  <div class="li-why"><b>Why three columns:</b> TikTok runs three overlapping subsidy programs. Each goes into a different settlement column with a different name. We add them because they're all "TikTok contributing to your shipping cost" — they net into one line on the P&L.</div>
+  <div class="li-why"><b>What each column means:</b><br>
+    • <code>TikTok Shop shipping incentive</code> (positive) — TikTok credits seller; per-order shipping subsidy.<br>
+    • <code>Shipping fee subsidy</code> (positive when present) — third subsidy program, often $0 for most shops.<br>
+    • <code>Customer shipping fee offset</code> (negative) — TikTok offsetting the customer-paid shipping fee (mirror of the incentive).
+    <br><br>
+    <strong>Net effect:</strong> the incentive and the offset usually nearly cancel each other (e.g., May: +$95K incentive, -$96K offset, net ~-$1K). The "Subsidy (net)" name reflects this — what TikTok contributes after the offset is applied.
+  </div>
 </div>
 
 <div class="line-item">
