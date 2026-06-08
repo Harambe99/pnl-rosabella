@@ -77,19 +77,17 @@ def dashboard(request):
 
 
 def daily_view(request):
+    """Render the FULL year of daily P&L in one scrollable table.
+    The month picker is a 'scroll-to' anchor, not a filter."""
     yyyy_mm = request.GET.get('month') or date.today().strftime('%Y-%m')
     try:
         y, m = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
-        start = date(y, m, 1)
-        # End = last day of NEXT month, so user sees 2 months at once and can
-        # scroll across the boundary without changing filter.
-        ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
-        end = date(ny, nm, monthrange(ny, nm)[1])
     except Exception:
         return redirect('daily')
+    start = date(y, 1, 1)
+    end = date(y, 12, 31)
     daily = compute_daily_pnl(start, end)
     dates = sorted(daily.keys())
-    # Pre-compute Net Revenue per date for the % column
     nr_per_date = [daily.get(d, {}).get('NET REVENUE') for d in dates]
     rows = []
     for label, rtype in PNL_ROW_LAYOUT:
@@ -104,12 +102,9 @@ def daily_view(request):
             v = daily.get(d, {}).get(label)
             cells.append((v, _pct(v, nr)))
         rows.append({'label': label, 'type': rtype, 'cells': cells})
-    # Prev/next month for nav buttons
-    py, pm = (y - 1, 12) if m == 1 else (y, m - 1)
     return render(request, 'core/daily.html', {
-        'rows': rows, 'dates': dates, 'yyyy_mm': yyyy_mm,
-        'prev_month': f'{py:04d}-{pm:02d}',
-        'next_month': f'{ny:04d}-{nm:02d}',
+        'rows': rows, 'dates': dates, 'yyyy_mm': yyyy_mm, 'year': y,
+        'prev_year': y - 1, 'next_year': y + 1,
     })
 
 
