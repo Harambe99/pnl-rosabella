@@ -299,15 +299,20 @@ def import_shop_analytics(file_obj, filename=''):
     if start < 0:
         return {'added': 0, 'skipped': 0, 'errors': ['Could not find "Date" header']}
 
-    # Pre-scan to detect format: if any row has day > 12, format is DD/MM/YYYY
-    prefer_dd_mm = False
+    # TikTok Shop Analytics always exports DD/MM/YYYY. Default to that.
+    # Only switch to MM/DD if a date in this file PROVES MM/DD (part 2 > 12).
+    prefer_dd_mm = True
     for r in rows[start:]:
         if not r or not r[0]: continue
         s = str(r[0]).strip().split(' ')[0]
         parts = s.split('/')
         if len(parts) == 3:
             try:
-                if int(parts[0]) > 12: prefer_dd_mm = True; break
+                p1, p2 = int(parts[0]), int(parts[1])
+                if p1 > 12 and p2 <= 12:
+                    prefer_dd_mm = True; break  # confirmed DD/MM
+                if p2 > 12 and p1 <= 12:
+                    prefer_dd_mm = False; break  # confirmed MM/DD — rare
             except: pass
 
     count = 0
