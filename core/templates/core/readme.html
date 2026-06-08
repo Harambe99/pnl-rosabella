@@ -22,6 +22,11 @@
   .readme .line-item .li-name { font-weight: 600; color: #1a202c; }
   .readme .line-item .li-meta { font-size: 0.82rem; color: #718096; margin-top: 2px; }
   .readme .line-item .li-desc { margin-top: 6px; font-size: 0.9rem; }
+  .readme .line-item .li-from { margin-top: 8px; font-size: 0.88rem; }
+  .readme .line-item .li-from b { color: #2d3748; }
+  .readme .line-item .li-formula { margin-top: 6px; font-size: 0.88rem; background: #f7fafc; padding: 6px 10px; border-radius: 4px; border-left: 3px solid #4299e1; }
+  .readme .line-item .li-why { margin-top: 6px; font-size: 0.88rem; color: #4a5568; }
+  .readme .line-item .li-watch { margin-top: 6px; font-size: 0.85rem; color: #744210; background: #fffbeb; padding: 4px 8px; border-radius: 3px; border-left: 3px solid #d69e2e; }
   .readme .badge-src { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; }
   .readme .badge-orders { background: #c6f6d5; color: #22543d; }
   .readme .badge-settle { background: #bee3f8; color: #2a4365; }
@@ -229,59 +234,282 @@
 <p><strong>To update a cost:</strong> edit the value inline on the COGS page and click Save. New imports will use the new value; <em>old imported orders keep the COGS they were imported with</em>. To recompute old orders with the new costs, wipe Orders and re-import (see Admin section).</p>
 <p><strong>Adding a new SKU:</strong> add a row to <code>core/management/commands/seed_cogs.py</code> and push — Render runs <code>seed_cogs</code> on every deploy. Or insert directly via Django shell.</p>
 
-<h2 id="line-items">7. P&amp;L line items — source &amp; verification</h2>
-<p>Every row in the P&amp;L, in display order. Badge shows the data source.</p>
+<h2 id="line-items">7. P&amp;L line items — what powers each one</h2>
+<p>Each line below tells you four things: where the number comes from, the exact formula, why that formula (not something else), and what to watch out for.</p>
 
 <h3>REVENUE</h3>
-<div class="line-item"><div class="li-name">Gross Sales <span class="badge-src badge-orders">Manage Orders</span></div><div class="li-meta">Sum of <code>SKU Subtotal Before Discount</code>, grouped by <code>Created Time</code> date, excluding Canceled.</div><div class="li-desc">Verify by filtering the CSV to one day and summing the column.</div></div>
-<div class="line-item"><div class="li-name">Less: Promos &amp; Discounts <span class="badge-src badge-orders">Manage Orders</span></div><div class="li-meta">Sum of <code>SKU Seller Discount</code> (sign-flipped negative).</div><div class="li-desc">These are seller-funded discounts only. Platform discounts are separate.</div></div>
-<div class="line-item"><div class="li-name">GMV <span class="badge-src badge-analytics">Shop Analytics</span> <span class="badge-src badge-calc">CALC</span></div><div class="li-meta">Override: uses Shop Analytics value when available. Fallback: <code>Gross Sales + Promos</code>.</div><div class="li-desc">Should match TikTok's portal GMV to the dollar when Shop Analytics is uploaded.</div></div>
-<div class="line-item"><div class="li-name">Less: Refunds <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Sum of <code>Gross sales refund</code> + <code>Seller discount refund</code>, attributed to Order Created Date.</div><div class="li-desc">Stored negative. Refunds for orders from previous months land on the original order's day, not the refund's settlement day.</div></div>
-<div class="line-item"><div class="li-name">NET REVENUE <span class="badge-src badge-calc">CALC</span></div><div class="li-meta"><code>= GMV + Refunds</code></div></div>
+
+<div class="line-item">
+  <div class="li-name">Gross Sales <span class="badge-src badge-orders">Manage Orders</span></div>
+  <div class="li-from"><b>From:</b> the <code>SKU Subtotal Before Discount</code> column of the Manage Orders CSV, grouped by the day the order was created (<code>Created Time</code> column), with any row where Order Status is "Canceled" excluded.</div>
+  <div class="li-formula"><b>Formula:</b> sum(SKU Subtotal Before Discount) for each created-date, excluding canceled.</div>
+  <div class="li-why"><b>Why this column:</b> it's the only one that captures full retail revenue before ANY discount. Every other revenue column in the CSV is post-discount or partial — this is the only "true gross" number.</div>
+  <div class="li-watch"><b>Watch:</b> "Canceled" is the only excluded status. Refunded orders DO still count here — they were real sales that later got refunded. The refund hits the Less: Refunds line separately.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Less: Promos &amp; Discounts <span class="badge-src badge-orders">Manage Orders</span></div>
+  <div class="li-from"><b>From:</b> the <code>SKU Seller Discount</code> column of the same Manage Orders CSV, grouped by created-date.</div>
+  <div class="li-formula"><b>Formula:</b> -1 × sum(SKU Seller Discount). Stored negative so it visually subtracts.</div>
+  <div class="li-why"><b>Why only seller discount:</b> TikTok separates seller-funded discounts (you paid for them) from platform-funded discounts (TikTok paid for them). We only count what you paid — TikTok's discounts don't reduce your revenue, they reduce TikTok's books.</div>
+  <div class="li-watch"><b>Watch:</b> If you participated in a co-funded campaign, your share lives in this column. TikTok's share of the same promo appears as <em>Co-funded Promotion (seller-funded)</em> further down — different line, different bucket.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">GMV <span class="badge-src badge-analytics">Shop Analytics</span> <span class="badge-src badge-calc">CALC fallback</span></div>
+  <div class="li-from"><b>From:</b> Shop Analytics XLSX column B (per-day GMV) IF uploaded. Otherwise computed.</div>
+  <div class="li-formula"><b>Formula:</b><br>Override path: <code>GMV = AnalyticsDay.gmv</code><br>Fallback path: <code>GMV = Gross Sales + Less: Promos &amp; Discounts</code></div>
+  <div class="li-why"><b>Why two paths:</b> TikTok's portal shows an authoritative GMV. We can compute it ourselves but the numbers occasionally differ by a few dollars (rounding, sub-day timing). Bookkeepers and stakeholders compare against the portal — so when Shop Analytics is uploaded, that value wins.</div>
+  <div class="li-watch"><b>Watch:</b> if you upload Shop Analytics for some months but not others, you'll have a mix of "portal GMV" and "calculated GMV" — the difference is usually tiny but not zero.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Less: Refunds <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> two columns of the Settlement XLSX added together — <code>Gross sales refund</code> + <code>Seller discount refund</code> — on rows where Type = "Order".</div>
+  <div class="li-formula"><b>Formula:</b> sum(Gross sales refund) + sum(Seller discount refund), grouped by the order's <em>created</em> date (not the date the refund was settled).</div>
+  <div class="li-why"><b>Why both columns:</b> when an order was originally sold, TikTok recorded gross sales AND a seller discount as separate entries. When that order is refunded, both entries get reversed.
+    <br><br>
+    <b>Example:</b> sold for $20 with $10 seller discount → customer paid $10, you received $10.<br>
+    When refunded: <code>Gross sales refund = -$20</code>, <code>Seller discount refund = +$10</code>, net effect on your wallet = <b>-$10</b>.
+    <br><br>
+    Using only Gross sales refund would record -$20 (you'd be over-refunded on paper). Using only Seller discount refund would record +$10 (sign flipped, wrong direction). Summing the two gives the true cash impact.
+  </div>
+  <div class="li-watch"><b>Watch:</b> refunds are attributed to the day the <em>original order</em> was created. A May refund for an April order shows on the April day. Re-uploading newer Settlement files will keep adding late refunds to old days.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">NET REVENUE <span class="badge-src badge-calc">CALC</span></div>
+  <div class="li-formula"><b>Formula:</b> <code>NET REVENUE = GMV + Less: Refunds</code> (refunds stored negative, so this subtracts).</div>
+  <div class="li-why"><b>Why this is the headline:</b> GMV is what you sold; Net Revenue is what stayed sold after returns. This is the number that flows into Gross Profit.</div>
+</div>
 
 <h3>COGS &amp; FULFILLMENT</h3>
-<div class="line-item"><div class="li-name">COGS <span class="badge-src badge-cogs">COGS table</span> <span class="badge-src badge-orders">Manage Orders</span></div><div class="li-meta"><code>quantity × COGSItem.cogs_per_order</code>, sign-flipped negative.</div><div class="li-desc">If a SKU is missing from the COGS table, COGS for that line is 0 and the SKU is logged in ImportLog notes as "unmapped".</div></div>
-<div class="line-item"><div class="li-name">FBT Fulfillment Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement column <code>FBT fulfillment fee</code> (Order rows only).</div></div>
-<div class="line-item"><div class="li-name">FBT Fulfillment Reimbursement <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement column <code>FBT fulfillment fee reimbursement</code>.</div></div>
-<div class="line-item"><div class="li-name">Seller Shipping <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement column <code>Shipping</code> — the shipping charge captured at order time (seller-shipped orders).</div></div>
-<div class="line-item"><div class="li-name">TT Shipping Subsidy (net) <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Sum of <code>TikTok Shop shipping incentive</code> + <code>Shipping fee subsidy</code> + <code>Customer shipping fee offset</code>.</div></div>
-<div class="line-item"><div class="li-name">Cost to Ship to FBT <span class="badge-src badge-monthly">Monthly Input</span></div><div class="li-meta">Flat-spread across days of the month.</div><div class="li-desc">No file import — enter total on Monthly Inputs tab. Sum your inbound-shipment invoices for the month.</div></div>
-<div class="line-item"><div class="li-name">Cost to Ship to Customer <span class="badge-src badge-ship">Seller Shipping CSV</span></div><div class="li-meta">Real per-day sums of <code>postage</code> from <code>SellerShipmentCost</code>. If no CSV is uploaded for the month, this row is $0 (no manual fallback).</div></div>
-<div class="line-item"><div class="li-name">Logistics Reimbursement <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement row type <code>Logistics reimbursement</code> → <code>Adjustment amount</code>.</div></div>
-<div class="line-item"><div class="li-name">FBT Hub Placement / Storage / Inbound Shipping / Incidents / Booking Non-Comp / Routing Non-Comp / Outbound No-Show / Delayed Response / Disposal / Return Shipping (VAS) / Return-to-Seller Handling / Inbound Return Operation <span class="badge-src badge-fbt">FBT Billing</span></div><div class="li-meta">All twelve FBT fee lines come from the FBT Billing XLSX (or manual Monthly Input).</div><div class="li-desc">Each line in the FBT Billing file maps to one MonthlyInput field via <code>FBT_LINE_TO_FIELD</code> in <code>importers.py</code>.</div></div>
-<div class="line-item"><div class="li-name">FBT Warehouse Compensation <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement row type <code>FBT warehouse compensation</code>.</div></div>
+
+<div class="line-item">
+  <div class="li-name">COGS <span class="badge-src badge-cogs">COGS table</span> <span class="badge-src badge-orders">Manage Orders</span></div>
+  <div class="li-from"><b>From:</b> at import time, every Manage Orders row is matched on SKU ID to the COGS table to get a per-unit cost, then stored as <code>cost × quantity</code> on the Order row in the database.</div>
+  <div class="li-formula"><b>Formula:</b> -1 × sum(Order.cogs) by created-date, excluding canceled orders.</div>
+  <div class="li-why"><b>Why frozen at import:</b> COGS represents what you ACTUALLY paid the supplier when that order shipped. Editing the COGS table today shouldn't retroactively change the cost of last month's orders — that would distort historical reporting.</div>
+  <div class="li-watch"><b>Watch:</b> if a SKU isn't in the COGS table, its cost is $0 (no error). After every Manage Orders upload, check the History tab — unmapped SKUs are listed in the import notes.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">FBT Fulfillment Fee <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement XLSX, <code>FBT fulfillment fee</code> column, only on rows where Type = "Order".</div>
+  <div class="li-formula"><b>Formula:</b> sum(FBT fulfillment fee) by order created-date.</div>
+  <div class="li-why"><b>What this is:</b> the bundled fee TikTok charges for picking, packing, and shipping an FBT order. Settlement records it per-order so we can attribute it to the day the order was placed.</div>
+  <div class="li-watch"><b>Watch:</b> this is ALSO present (per-SKU) in the Logistics Cost Overview file. Do not import it from there too — it would double-count.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">FBT Fulfillment Reimbursement <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>FBT fulfillment fee reimbursement</code> column, on Order-type rows.</div>
+  <div class="li-formula"><b>Formula:</b> sum(reimbursement) by order created-date. Stored positive (it's money back to you).</div>
+  <div class="li-why"><b>When this fires:</b> TikTok charged you the FBT Fulfillment Fee but a fulfillment problem occurred (lost package, damaged, etc.) and they refunded part or all of it.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Seller Shipping <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>Shipping</code> column, on Order-type rows.</div>
+  <div class="li-formula"><b>Formula:</b> sum(Shipping) by order created-date.</div>
+  <div class="li-why"><b>What this is:</b> the shipping fee that was captured on the order itself. For FBT orders this is what TikTok charged the customer; for seller-shipped orders this is what the customer paid you toward shipping. It's NOT the cost you paid the 3PL — that's a separate line (Cost to Ship to Customer).</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">TT Shipping Subsidy (net) <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, three columns added together — <code>TikTok Shop shipping incentive</code> + <code>Shipping fee subsidy</code> + <code>Customer shipping fee offset</code>.</div>
+  <div class="li-formula"><b>Formula:</b> sum of all three, by order created-date.</div>
+  <div class="li-why"><b>Why three columns:</b> TikTok runs three overlapping subsidy programs. Each goes into a different settlement column with a different name. We add them because they're all "TikTok contributing to your shipping cost" — they net into one line on the P&L.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Cost to Ship to FBT <span class="badge-src badge-monthly">Monthly Input</span></div>
+  <div class="li-from"><b>From:</b> the <code>cost_ship_to_fbt</code> field on Monthly Inputs (manual entry).</div>
+  <div class="li-formula"><b>Formula:</b> -1 × (monthly_value ÷ days_in_month), applied to every day of the month.</div>
+  <div class="li-why"><b>Why manual:</b> when YOU arrange inbound shipping (your 3PL ships your stock to FBT), it doesn't appear in any TikTok export. TikTok's "Inbound Shipping Fee" in FBT Billing only covers the case where TikTok arranged the inbound — usually $0 for self-shipped stock.</div>
+  <div class="li-watch"><b>Watch:</b> sum your monthly inbound shipping invoices and enter the total. Daily P&L will show ~total/30 each day; monthly view will show the real monthly total.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Cost to Ship to Customer <span class="badge-src badge-ship">Seller Shipping CSV</span></div>
+  <div class="li-from"><b>From:</b> <code>SellerShipmentCost.postage</code> rows imported from the Seller Shipping CSV (3PL postage report), grouped by <code>shipped_date</code>.</div>
+  <div class="li-formula"><b>Formula:</b> -1 × sum(postage) for each shipped date.</div>
+  <div class="li-why"><b>Why ship-date not order-date:</b> the cost hits your account the day the package leaves the warehouse, not the day the order was placed. With ~1-day median order-to-ship lag, daily P&L shows yesterday's orders' shipping on today's costs — close enough that we don't try to back-attribute.</div>
+  <div class="li-watch"><b>Watch:</b> if no Seller Shipping CSV is uploaded for the month, this line is $0 (no manual fallback). Multi-SKU shipments repeat the postage value across rows in the CSV; the importer dedups on shipment_number so postage is counted once.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Logistics Reimbursement <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement rows where Type = "Logistics reimbursement". Value pulled from the <code>Adjustment amount</code> column.</div>
+  <div class="li-formula"><b>Formula:</b> sum(adjustment_amount) for those rows, by order created-date. Positive (money back to you).</div>
+  <div class="li-why"><b>What this is:</b> TikTok reimbursing logistics-side mistakes — wrong address routing fees they shouldn't have charged, etc.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">FBT Hub Placement / Storage / Inbound Shipping / Incidents / Booking N/C / Routing N/C / Outbound No-Show / Delayed Response / Disposal / Return Shipping (VAS) / Return-to-Seller Handling / Inbound Return Operation <span class="badge-src badge-fbt">FBT Billing</span></div>
+  <div class="li-from"><b>From:</b> the FBT Billing XLSX ("Logistics Cost Overview" export). Each row in the file has a line description (column B) and an amount (column C). The importer matches the line description against a 12-entry mapping (<code>FBT_LINE_TO_FIELD</code> in <code>importers.py</code>) and writes the amount to the matching MonthlyInput field.</div>
+  <div class="li-formula"><b>Formula per line:</b> -1 × (MonthlyInput.fbt_X ÷ days_in_month), per day of the month.</div>
+  <div class="li-why"><b>Why monthly:</b> these fees are billed once a month, not per-order. Flat-spreading across days gives a daily approximation without pretending we know exactly when each fee was incurred within the month.</div>
+  <div class="li-watch"><b>Watch:</b> re-uploading FBT Billing for the same month OVERWRITES all 12 fields. If you make a manual edit between uploads, it gets clobbered.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">FBT Warehouse Compensation <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement rows where Type = "FBT warehouse compensation", value from <code>Adjustment amount</code>.</div>
+  <div class="li-why"><b>What this is:</b> TikTok comping you for warehouse-side losses (lost inventory, damaged stock not your fault, etc.). Different from FBT Fulfillment Reimbursement, which is per-order.</div>
+</div>
 
 <h3>Platform Fees</h3>
-<div class="line-item"><div class="li-name">Referral Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement <code>Referral fee</code> column.</div></div>
-<div class="line-item"><div class="li-name">Refund Admin Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement <code>Refund administration fee</code>.</div></div>
-<div class="line-item"><div class="li-name">Campaign Service Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement <code>Campaign service fee</code>.</div></div>
-<div class="line-item"><div class="li-name">Violation Fee <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Adjustment with row type <code>Violation fee (settlement fee)</code>.</div></div>
-<div class="line-item"><div class="li-name">TikTok Shop Reimb <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Row type <code>TikTok Shop reimbursement</code>.</div></div>
-<div class="line-item"><div class="li-name">Rebate <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Row type <code>Rebate</code>.</div></div>
-<div class="line-item"><div class="li-name">Co-funded Promotion (seller-funded) <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Settlement <code>Co-funded promotion (seller-funded)</code> column.</div></div>
-<div class="line-item"><div class="li-name">GROSS PROFIT <span class="badge-src badge-calc">CALC</span></div><div class="li-meta">= Net Revenue + all COGS/Fulfillment/Platform lines above.</div></div>
+
+<div class="line-item">
+  <div class="li-name">Referral Fee <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>Referral fee</code> column, on Order-type rows.</div>
+  <div class="li-formula"><b>Formula:</b> sum(Referral fee) by order created-date.</div>
+  <div class="li-why"><b>What this is:</b> TikTok's commission for being the marketplace — typically a fixed % of GMV. The largest single platform fee.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Refund Admin Fee <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>Refund administration fee</code> column.</div>
+  <div class="li-why"><b>What this is:</b> a small per-refund admin charge TikTok takes when processing returns. Scales with refund volume.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Campaign Service Fee <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>Campaign service fee</code> column.</div>
+  <div class="li-why"><b>What this is:</b> fee for participating in TikTok promo campaigns. Often $0 unless you opted into a campaign that month.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Violation Fee <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement rows where Type = "Violation fee (settlement fee)" (matched leniently — TikTok sometimes uses a Chinese parenthesis character). Value from <code>Adjustment amount</code>.</div>
+  <div class="li-why"><b>What this is:</b> penalties for policy violations (listing rule breaks, late fulfillment streaks, etc.). Should generally be $0 — investigate if it's not.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">TikTok Shop Reimb <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement rows where Type = "TikTok Shop reimbursement". Value from <code>Adjustment amount</code>. Positive.</div>
+  <div class="li-why"><b>What this is:</b> compensation TikTok pays you for various platform-side issues — refund-protection refunds, dispute resolutions, etc.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Rebate <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement rows where Type = "Rebate". Value from <code>Adjustment amount</code>. Positive.</div>
+  <div class="li-why"><b>What this is:</b> volume-based or program-based rebates TikTok pays back to qualifying sellers.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Co-funded Promotion (seller-funded) <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>Co-funded promotion (seller-funded)</code> column on Order-type rows.</div>
+  <div class="li-why"><b>What this is:</b> your share of a co-funded TikTok-and-you promo. TikTok funds part, you fund part — this column captures your contribution per order. Stored negative (cost to you).</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">GROSS PROFIT <span class="badge-src badge-calc">CALC</span></div>
+  <div class="li-formula"><b>Formula:</b> Net Revenue + all 28 cost/fee/reimbursement lines above (most are negative, some are positive reimbursements that increase profit).</div>
+  <div class="li-why"><b>What this represents:</b> profit after every direct cost of selling and fulfilling the order — but before marketing and overhead. This is the "unit economics" line.</div>
+</div>
 
 <h3>MARKETING</h3>
-<div class="line-item"><div class="li-name">Ad Spend — Direct to TikTok (cash) <span class="badge-src badge-ads">Ad Spend</span></div><div class="li-meta">Sign-flipped negative.</div><div class="li-desc">Verify monthly total matches Ads Manager spend tile.</div></div>
-<div class="line-item"><div class="li-name">Less: TT Promo Credits <span class="badge-src badge-monthly">Monthly Input</span></div><div class="li-meta">Positive sign (reduces ad cost).</div></div>
-<div class="line-item"><div class="li-name">Less: TBSM Savings (6%) <span class="badge-src badge-monthly">TBD</span></div><div class="li-meta">Currently always 0 — auto-6%-calc was removed pending a manual / file-based source.</div><div class="li-desc">When you figure out the real TBSM source, wire it in (likely a new MonthlyInput field).</div></div>
-<div class="line-item"><div class="li-name">Total Ad Spend <span class="badge-src badge-calc">CALC</span></div><div class="li-meta"><code>= Ad Spend + TT Promo Credits</code> (TBSM zero for now).</div></div>
-<div class="line-item"><div class="li-name">Platform (Affiliate Commission) <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Sum of <code>Affiliate Commission</code> + <code>Affiliate partner commission</code> + <code>Affiliate Shop Ads commission</code> + <code>Affiliate Partner shop ads commission</code>.</div></div>
-<div class="line-item"><div class="li-name">Off-Platform (1% method) <span class="badge-src badge-monthly">Monthly Input</span></div></div>
-<div class="line-item"><div class="li-name">Monthly Retainers <span class="badge-src badge-monthly">Monthly Input</span></div></div>
-<div class="line-item"><div class="li-name">Outsourced Agency <span class="badge-src badge-monthly">Monthly Input</span></div><div class="li-meta">Any external creator/marketing agency cost. DB field is still called <code>creatify</code> for backward-compat but the displayed label is generic.</div></div>
-<div class="line-item"><div class="li-name">TOTAL MARKETING <span class="badge-src badge-calc">CALC</span></div><div class="li-meta">= Total Ad Spend + Affiliate + Off-Platform + Retainers + Outsourced Agency.</div></div>
+
+<div class="line-item">
+  <div class="li-name">Ad Spend — Direct to TikTok (cash) <span class="badge-src badge-ads">Ad Spend</span></div>
+  <div class="li-from"><b>From:</b> Ad Spend XLSX (Campaign Overview), <code>Cost</code> column by day.</div>
+  <div class="li-formula"><b>Formula:</b> -1 × AdSpendDay.cost for each date.</div>
+  <div class="li-why"><b>What this is:</b> the cash you paid TikTok for ads that day. The headline marketing cost.</div>
+  <div class="li-watch"><b>Watch:</b> re-uploading Ad Spend OVERWRITES per-date values. If TikTok adjusted a daily spend later (rare but happens), the new value wins.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Less: TT Promo Credits <span class="badge-src badge-monthly">Monthly Input</span></div>
+  <div class="li-from"><b>From:</b> the <code>tt_promo_credits</code> field on Monthly Inputs (manual).</div>
+  <div class="li-formula"><b>Formula:</b> +1 × (monthly_value ÷ days_in_month), per day. Positive sign — reduces the negative Ad Spend.</div>
+  <div class="li-why"><b>Why manual:</b> TikTok shows promo credit balances in Ads Manager but doesn't include them in the Campaign Overview export. Until a parser is added, enter monthly. Often $0.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Less: TBSM Savings (6%) <span class="badge-src badge-monthly">currently $0</span></div>
+  <div class="li-from"><b>From:</b> hardcoded to $0 in the aggregator.</div>
+  <div class="li-why"><b>History:</b> previously auto-calculated as 6% × Ad Spend. Removed because the real TBSM (TikTok Brand Spend Match) rate varies and isn't in any current export.</div>
+  <div class="li-watch"><b>Impact:</b> Total Ad Spend reads ~6% higher than the true net cost if TBSM is active. Net Profit is slightly understated. Wire in a real source when found.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Total Ad Spend <span class="badge-src badge-calc">CALC</span></div>
+  <div class="li-formula"><b>Formula:</b> <code>Ad Spend (negative) + TT Promo Credits (positive)</code>. TBSM contributes 0 for now.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Platform (Affiliate Commission) <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, four columns added together — <code>Affiliate Commission</code> + <code>Affiliate partner commission</code> + <code>Affiliate Shop Ads commission</code> + <code>Affiliate Partner shop ads commission</code>. On Order-type rows.</div>
+  <div class="li-formula"><b>Formula:</b> sum of all four, by order created-date.</div>
+  <div class="li-why"><b>Why four columns:</b> TikTok separates direct affiliates, partner-network affiliates, Shop Ads-driven affiliates, and partner Shop Ads. Each goes into its own settlement column. We sum them because they're all "you paid a creator a commission" from a P&L perspective.</div>
+  <div class="li-watch"><b>Watch:</b> if "Affiliate Commission" is ever a TOTAL of the other three rather than a separate bucket, we'd double-count. Manually reconcile one settlement file against a creator-payout report to confirm.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Off-Platform (1% method) <span class="badge-src badge-monthly">Monthly Input</span></div>
+  <div class="li-from"><b>From:</b> the <code>off_platform_1pct</code> field (manual).</div>
+  <div class="li-why"><b>What this is:</b> 1% commission paid to off-platform creators (creators driving traffic from outside TikTok). Calculated by your team — there's no TikTok export for it.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Monthly Retainers <span class="badge-src badge-monthly">Monthly Input</span></div>
+  <div class="li-from"><b>From:</b> <code>monthly_retainers</code> (manual). Sum of fixed creator/agency retainers for the month.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Outsourced Agency <span class="badge-src badge-monthly">Monthly Input</span></div>
+  <div class="li-from"><b>From:</b> <code>creatify</code> field (manual). The DB column name is legacy; the displayed label is generic so any agency works.</div>
+  <div class="li-why"><b>Why generic naming:</b> originally specific to Creatify. Renamed for reuse with any future external agency without a migration.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">TOTAL MARKETING <span class="badge-src badge-calc">CALC</span></div>
+  <div class="li-formula"><b>Formula:</b> Total Ad Spend + Affiliate Commission + Off-Platform + Monthly Retainers + Outsourced Agency. All negative.</div>
+</div>
 
 <h3>SG&amp;A</h3>
-<div class="line-item"><div class="li-name">Team Spend <span class="badge-src badge-monthly">Monthly Input</span></div></div>
-<div class="line-item"><div class="li-name">Software &amp; Tools <span class="badge-src badge-monthly">Monthly Input</span></div></div>
-<div class="line-item"><div class="li-name">Other G&amp;A <span class="badge-src badge-monthly">Monthly Input</span></div></div>
-<div class="line-item"><div class="li-name">Chargebacks <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Row type <code>Chargeback</code>.</div></div>
-<div class="line-item"><div class="li-name">Unclassified Adjustments <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Catch-all: any Settlement row type not in the known mapping lands here, with the type name logged to ImportLog notes. If you see growth in this line, look at History → notes to see what new types TikTok introduced, then add them to <code>TYPE_TO_FIELD</code> in <code>importers.py</code>.</div></div>
-<div class="line-item"><div class="li-name">TOTAL SG&amp;A <span class="badge-src badge-calc">CALC</span></div></div>
+
+<div class="line-item">
+  <div class="li-name">Team Spend <span class="badge-src badge-monthly">Monthly Input</span></div>
+  <div class="li-from"><b>From:</b> <code>team_spend</code> (manual). Payroll + contractors for the month.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Software &amp; Tools <span class="badge-src badge-monthly">Monthly Input</span></div>
+  <div class="li-from"><b>From:</b> <code>software_tools</code> (manual). Monthly SaaS bill total (Shopify, ChatGPT, Slack, etc.).</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Other G&amp;A <span class="badge-src badge-monthly">Monthly Input</span></div>
+  <div class="li-from"><b>From:</b> <code>other_ga</code> (manual). Catch-all for general &amp; admin costs that don't fit another bucket.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Chargebacks <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement rows where Type = "Chargeback". Value from <code>Adjustment amount</code>. Stored negative.</div>
+  <div class="li-why"><b>What this is:</b> customer-initiated payment disputes (credit card chargebacks) that TikTok absorbed from your wallet. Attributed to the original order's created date.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Unclassified Adjustments <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement rows whose Type field doesn't match any of the known mappings in <code>TYPE_TO_FIELD</code>. Value from <code>Adjustment amount</code>.</div>
+  <div class="li-why"><b>Why this exists:</b> safety net. If TikTok introduces a new settlement row type we haven't mapped, the money lands here instead of being lost. The new type name is logged to ImportLog notes.</div>
+  <div class="li-watch"><b>Watch:</b> if this line grows, check the History tab notes. Decide whether to add the new type to <code>TYPE_TO_FIELD</code> in <code>importers.py</code> (mapping it to the right field) or leave it in unclassified.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">TOTAL SG&amp;A <span class="badge-src badge-calc">CALC</span></div>
+  <div class="li-formula"><b>Formula:</b> Team Spend + Software &amp; Tools + Other G&amp;A + Chargebacks + Unclassified Adjustments.</div>
+</div>
 
 <h3>Bottom line</h3>
-<div class="line-item"><div class="li-name">NET PROFIT <span class="badge-src badge-calc">CALC</span></div><div class="li-meta"><code>= GROSS PROFIT + TOTAL MARKETING + TOTAL SG&amp;A</code> (TOTAL MARKETING and TOTAL SG&amp;A are already negative.)</div></div>
+<div class="line-item">
+  <div class="li-name">NET PROFIT <span class="badge-src badge-calc">CALC</span></div>
+  <div class="li-formula"><b>Formula:</b> <code>GROSS PROFIT + TOTAL MARKETING + TOTAL SG&amp;A</code> (Marketing and SG&amp;A are already negative).</div>
+  <div class="li-why"><b>What this is:</b> the bottom-line number — what's left after every direct cost, every marketing dollar, and every overhead expense. Negative for now; goal is positive.</div>
+</div>
 
 <h2 id="calc">8. How the numbers roll up</h2>
 <ol>
