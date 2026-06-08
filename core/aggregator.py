@@ -106,7 +106,7 @@ def compute_daily_pnl(start_date, end_date):
         '   Team Spend': ('team_spend', -1),
         '   Software & Tools': ('software_tools', -1),
         '   Monthly Retainers': ('monthly_retainers', -1),
-        '   Creatify (creator-sourcing)': ('creatify', -1),
+        '   Outsourced Agency': ('creatify', -1),
         '   Off-Platform (1% method)': ('off_platform_1pct', -1),
         '   Other G&A': ('other_ga', -1),
         '   Less: TT Promo Credits': ('tt_promo_credits', +1),
@@ -191,7 +191,7 @@ def compute_daily_pnl(start_date, end_date):
             + row.get('   Platform (Affiliate Commission)', ZERO)
             + row.get('   Off-Platform (1% method)', ZERO)
             + row.get('   Monthly Retainers', ZERO)
-            + row.get('   Creatify (creator-sourcing)', ZERO))
+            + row.get('   Outsourced Agency', ZERO))
 
         # TOTAL SG&A
         row['TOTAL SG&A'] = (row.get('   Team Spend', ZERO)
@@ -271,7 +271,7 @@ PNL_ROW_LAYOUT = [
     ('   Off-Platform (1% method)', 'row'),
     ('Creator Retainers', 'sub'),
     ('   Monthly Retainers', 'row'),
-    ('   Creatify (creator-sourcing)', 'row'),
+    ('   Outsourced Agency', 'row'),
     ('TOTAL MARKETING', 'total'),
     ('', 'blank'),
     ('SG&A', 'section'),

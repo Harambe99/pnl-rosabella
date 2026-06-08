@@ -206,7 +206,7 @@
     <tr><td><code>team_spend</code></td><td>Payroll / contractor cost</td><td>Bookkeeping / payroll provider</td></tr>
     <tr><td><code>software_tools</code></td><td>SaaS subscriptions (Shopify, ChatGPT, etc.)</td><td>Credit-card statement</td></tr>
     <tr><td><code>monthly_retainers</code></td><td>Fixed creator/agency retainers</td><td>Internal contracts</td></tr>
-    <tr><td><code>creatify</code></td><td>Creator sourcing platform cost</td><td>Creatify invoice</td></tr>
+    <tr><td><code>creatify</code></td><td>Outsourced creator/marketing agency cost (was Creatify; now any external agency)</td><td>Agency invoice</td></tr>
     <tr><td><code>off_platform_1pct</code></td><td>1% method commission for off-platform creators</td><td>Internal calc (1% of off-platform-driven revenue)</td></tr>
     <tr><td><code>other_ga</code></td><td>Misc G&amp;A — anything not otherwise categorized</td><td>Bookkeeping</td></tr>
     <tr><td><code>tt_promo_credits</code></td><td>Free TikTok ad credits applied that month</td><td>Ads Manager → Billing → Credits (manual until a parser is added)</td></tr>
@@ -270,8 +270,8 @@
 <div class="line-item"><div class="li-name">Platform (Affiliate Commission) <span class="badge-src badge-settle">Settlement</span></div><div class="li-meta">Sum of <code>Affiliate Commission</code> + <code>Affiliate partner commission</code> + <code>Affiliate Shop Ads commission</code> + <code>Affiliate Partner shop ads commission</code>.</div></div>
 <div class="line-item"><div class="li-name">Off-Platform (1% method) <span class="badge-src badge-monthly">Monthly Input</span></div></div>
 <div class="line-item"><div class="li-name">Monthly Retainers <span class="badge-src badge-monthly">Monthly Input</span></div></div>
-<div class="line-item"><div class="li-name">Creatify (creator-sourcing) <span class="badge-src badge-monthly">Monthly Input</span></div></div>
-<div class="line-item"><div class="li-name">TOTAL MARKETING <span class="badge-src badge-calc">CALC</span></div><div class="li-meta">= Total Ad Spend + Affiliate + Off-Platform + Retainers + Creatify.</div></div>
+<div class="line-item"><div class="li-name">Outsourced Agency <span class="badge-src badge-monthly">Monthly Input</span></div><div class="li-meta">Any external creator/marketing agency cost. DB field is still called <code>creatify</code> for backward-compat but the displayed label is generic.</div></div>
+<div class="line-item"><div class="li-name">TOTAL MARKETING <span class="badge-src badge-calc">CALC</span></div><div class="li-meta">= Total Ad Spend + Affiliate + Off-Platform + Retainers + Outsourced Agency.</div></div>
 
 <h3>SG&amp;A</h3>
 <div class="line-item"><div class="li-name">Team Spend <span class="badge-src badge-monthly">Monthly Input</span></div></div>
