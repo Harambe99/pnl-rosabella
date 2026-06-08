@@ -165,12 +165,12 @@ def compute_daily_pnl(start_date, end_date):
                     '   Co-funded Promotion (seller-funded)']
         row['GROSS PROFIT'] = sum((row.get(x, ZERO) for x in gp_items), ZERO)
 
-        # Ad spend math
+        # Ad spend: true value only. No TBSM auto-calc.
+        # ad is already negative; tt_promo is a positive credit that reduces the negative total.
         ad = row.get('Ad Spend — Direct to TikTok (cash)', ZERO)
-        tbsm = Decimal('0.06') * abs(ad)
-        row['   Less: TBSM Savings (6%)'] = tbsm
+        row['   Less: TBSM Savings (6%)'] = ZERO
         tt_promo = row.get('   Less: TT Promo Credits', ZERO)
-        row['Total Ad Spend'] = -(abs(ad) - tt_promo - tbsm)
+        row['Total Ad Spend'] = ad + tt_promo
 
         # TOTAL MARKETING
         row['TOTAL MARKETING'] = (row['Total Ad Spend']
