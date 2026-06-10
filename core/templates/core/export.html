@@ -1,0 +1,40 @@
+{% extends "core/base.html" %}
+{% block title %}Export P&L · CSV{% endblock %}
+{% block content %}
+<h2 class="mb-3">Export P&amp;L as CSV</h2>
+<p class="text-muted">Pick a month and a level of detail. Downloads a CSV you can open in Excel, Sheets, or Numbers.</p>
+
+<div class="row g-4 mt-2" style="max-width: 900px;">
+
+  <div class="col-md-6">
+    <div class="card p-3 h-100">
+      <h5>Monthly-level P&amp;L</h5>
+      <p class="text-muted small mb-3">One column with the month's totals, plus a % of Net Revenue column for each row. Use this for month-on-month comparisons or to paste into a deck.</p>
+      <form method="get" action="{% url 'export_pnl' %}">
+        <input type="hidden" name="mode" value="monthly">
+        <label class="form-label small">Month</label>
+        <input type="month" name="month" value="{{ current_month }}" class="form-control mb-3" required>
+        <button class="btn btn-primary" type="submit">Download monthly CSV</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card p-3 h-100">
+      <h5>Daily-level P&amp;L</h5>
+      <p class="text-muted small mb-3">One column per day of the chosen month, plus a month-total column. Includes $ and % NR for every cell. Use this for granular review or to dig into specific-day performance.</p>
+      <form method="get" action="{% url 'export_pnl' %}">
+        <input type="hidden" name="mode" value="daily">
+        <label class="form-label small">Month</label>
+        <input type="month" name="month" value="{{ current_month }}" class="form-control mb-3" required>
+        <button class="btn btn-primary" type="submit">Download daily CSV</button>
+      </form>
+    </div>
+  </div>
+
+</div>
+
+<p class="text-muted small mt-4">
+  Notes: empty cells in the CSV correspond to section headers and sub-rows that don't carry a value (e.g., "REVENUE", "Fulfillment"). The dollar values are unrounded — Excel will display them however you format the column. % NR is rounded to 1 decimal.
+</p>
+{% endblock %}

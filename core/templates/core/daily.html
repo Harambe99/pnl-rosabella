@@ -11,6 +11,7 @@
       <button onclick="zoomAdjust(10)" title="Zoom in">+</button>
       <button onclick="zoomReset()" class="reset" title="Reset zoom">⟲</button>
     </span>
+    <a href="{% url 'export_pnl' %}?mode=daily&month={{ yyyy_mm }}" class="btn btn-sm btn-outline-primary" title="Download daily CSV for {{ yyyy_mm }}">⬇ CSV</a>
     <form method="get" class="d-flex gap-2 align-items-center" id="dailyForm">
       <a href="?month={{ prev_year }}-{{ yyyy_mm|slice:'5:7' }}" class="btn btn-sm btn-outline-secondary" title="Previous year">←</a>
       <select name="year-only" class="form-select form-select-sm" id="yearPick" style="width:110px">

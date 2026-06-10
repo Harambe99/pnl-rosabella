@@ -216,6 +216,110 @@ def readme(request):
     return render(request, 'core/readme.html')
 
 
+def export_pnl(request):
+    """GET: show the export page. With ?mode= & ?month= query: stream CSV."""
+    import csv, io
+    mode = request.GET.get('mode')
+    yyyy_mm = request.GET.get('month', '')
+
+    if not mode:
+        # Render the form page
+        return render(request, 'core/export.html', {
+            'current_month': date.today().strftime('%Y-%m'),
+        })
+
+    # Validate inputs
+    try:
+        y, m = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
+        if y < 2020 or y > 2099 or m < 1 or m > 12:
+            return HttpResponse('Invalid month', status=400)
+    except Exception:
+        return HttpResponse('Invalid month', status=400)
+
+    if mode not in ('monthly', 'daily'):
+        return HttpResponse('mode must be monthly or daily', status=400)
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+
+    if mode == 'monthly':
+        # One column: the chosen month's totals
+        start = date(y, m, 1)
+        end = date(y, m, monthrange(y, m)[1])
+        daily = compute_daily_pnl(start, end)
+        monthly = {}
+        for d, row in daily.items():
+            for label, val in row.items():
+                monthly[label] = monthly.get(label, Decimal('0')) + (val or Decimal('0'))
+        nr = monthly.get('NET REVENUE') or Decimal('0')
+
+        w.writerow(['Line Item', f'{yyyy_mm} ($)', f'{yyyy_mm} (% Net Rev)'])
+        for label, rtype in PNL_ROW_LAYOUT:
+            if rtype == 'blank':
+                w.writerow(['', '', ''])
+                continue
+            if rtype in ('section', 'sub'):
+                w.writerow([label, '', ''])
+                continue
+            v = monthly.get(label)
+            dollar = f'{float(v):.2f}' if v is not None else ''
+            pct = ''
+            if v is not None and nr and float(nr) != 0:
+                pct = f'{float(v) / float(nr) * 100:.1f}%'
+            w.writerow([label, dollar, pct])
+
+        filename = f'pnl_monthly_{yyyy_mm}.csv'
+
+    else:  # daily
+        start = date(y, m, 1)
+        end = date(y, m, monthrange(y, m)[1])
+        daily = compute_daily_pnl(start, end)
+        dates = sorted(daily.keys())
+        nr_per_date = [daily.get(d, {}).get('NET REVENUE') for d in dates]
+        month_nr = sum((v or Decimal('0')) for v in nr_per_date)
+
+        # Two-row header: dates + sub-header
+        header1 = ['Line Item']
+        for d in dates:
+            header1.extend([d.strftime('%d %b'), ''])
+        header1.extend([f'Total {yyyy_mm}', ''])
+        w.writerow(header1)
+        header2 = ['']
+        for _ in dates:
+            header2.extend(['$', '% NR'])
+        header2.extend(['$', '% NR'])
+        w.writerow(header2)
+
+        for label, rtype in PNL_ROW_LAYOUT:
+            if rtype == 'blank':
+                w.writerow([''] + ['', ''] * (len(dates) + 1))
+                continue
+            if rtype in ('section', 'sub'):
+                w.writerow([label] + ['', ''] * (len(dates) + 1))
+                continue
+            row_cells = [label]
+            month_total = Decimal('0')
+            for d, nr in zip(dates, nr_per_date):
+                v = daily.get(d, {}).get(label)
+                dollar = f'{float(v):.2f}' if v is not None else ''
+                pct = ''
+                if v is not None and nr and float(nr) != 0:
+                    pct = f'{float(v) / float(nr) * 100:.1f}%'
+                row_cells.extend([dollar, pct])
+                if v is not None: month_total += v
+            # Month total column
+            mt_dollar = f'{float(month_total):.2f}'
+            mt_pct = f'{float(month_total) / float(month_nr) * 100:.1f}%' if month_nr else ''
+            row_cells.extend([mt_dollar, mt_pct])
+            w.writerow(row_cells)
+
+        filename = f'pnl_daily_{yyyy_mm}.csv'
+
+    resp = HttpResponse(buf.getvalue(), content_type='text/csv')
+    resp['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return resp
+
+
 def health(request):
     return HttpResponse('OK')
 
