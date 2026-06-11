@@ -39,8 +39,21 @@
 <p class="text-muted">
   Daily FIFO reconciliation of your TikTok ad account: which days were funded by discounted balance vs full-price card-billed.
   Powered by the most recent Ad Transactions upload ({{ txn_count|intcomma }} transactions on file).
-  These daily values feed the <em>Less: TBSM Savings</em> and <em>Less: TT Promo Credits</em> lines on Daily &amp; Monthly P&amp;L.
 </p>
+
+{% if config.feed_pnl %}
+<div class="alert alert-success py-2 small">
+  <strong>P&amp;L is reading from this ledger.</strong> Daily &amp; Monthly P&amp;L pull <em>Less: TBSM Savings</em>
+  and <em>Less: TT Promo Credits</em> from the FIFO engine below. Toggle off in the Opening balance card if you want
+  P&amp;L to fall back to manual / zero values.
+</div>
+{% else %}
+<div class="alert alert-warning py-2 small">
+  <strong>P&amp;L is NOT reading from this ledger yet</strong> — <em>Less: TBSM Savings</em> stays at $0 and
+  <em>Less: TT Promo Credits</em> uses the manual Monthly Inputs flat-spread.
+  Flip <em>"Feed P&amp;L"</em> on in the Opening balance card once you've verified the engine matches your exports.
+</div>
+{% endif %}
 
 <!-- ============= Monthly summary ============= -->
 <h4 class="mt-4">Monthly summary</h4>
@@ -136,6 +149,13 @@
         <label class="form-label small mb-1">Default TBSM discount</label>
         <input type="number" step="0.0001" name="tbsm_default_discount" class="form-control form-control-sm mb-2"
                value="{{ config.tbsm_default_discount }}">
+        <div class="form-check mt-2 mb-2">
+          <input class="form-check-input" type="checkbox" name="feed_pnl" id="feed_pnl"
+                 {% if config.feed_pnl %}checked{% endif %}>
+          <label class="form-check-label small" for="feed_pnl">
+            <strong>Feed P&amp;L</strong> — let Daily / Monthly P&amp;L use these computed values
+          </label>
+        </div>
         <button type="submit" class="btn btn-primary btn-sm w-100">Save + Recompute</button>
       </form>
     </div>

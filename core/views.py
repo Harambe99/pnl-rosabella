@@ -349,6 +349,7 @@ def ad_discounts(request):
             cfg.opening_date = _parse_date(request.POST.get('opening_date'))
             cfg.opening_discount = Decimal(request.POST.get('opening_discount', '0.06') or '0.06')
             cfg.tbsm_default_discount = Decimal(request.POST.get('tbsm_default_discount', '0.06') or '0.06')
+            cfg.feed_pnl = (request.POST.get('feed_pnl') == 'on')
             cfg.save()
             recompute_ledger(date(year, 1, 1), date(year, 12, 31))
             messages.success(request, 'Config saved + ledger recomputed.')

@@ -5,7 +5,7 @@ from decimal import Decimal
 from datetime import date, timedelta
 from calendar import monthrange
 from django.db.models import Sum, Q
-from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, SellerShipmentCost, AdLedgerDay
+from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, SellerShipmentCost, AdLedgerDay, AdLedgerConfig
 
 
 ZERO = Decimal('0')
@@ -162,16 +162,18 @@ def compute_daily_pnl(start_date, end_date):
         if mkey in months_with_ship:
             result[d]['   Cost to Ship to Customer'] = -(daily_ship.get(d, ZERO))
 
-    # Ad Ledger override — when AdTransaction data has been imported and the FIFO
-    # engine has produced AdLedgerDay rows, use the per-day TBSM Savings and Free
-    # Promo Credits from the engine instead of the manual monthly flat-spread.
-    # ad_spend stays sourced from AdSpendDay (already populated above); the engine
-    # snapshot mirrors it but we keep AdSpendDay as the source of truth for raw spend.
-    ledger_qs = AdLedgerDay.objects.filter(date__gte=start_date, date__lte=end_date)
-    for ald in ledger_qs:
-        d = ald.date
-        result[d]['   Less: TBSM Savings'] = ald.savings_tbsm or ZERO
-        result[d]['   Less: TT Promo Credits'] = ald.savings_promo or ZERO
+    # Ad Ledger override — only kicks in when AdLedgerConfig.feed_pnl == True,
+    # i.e. the user has explicitly enabled the FIFO engine after verifying it.
+    # Until then, P&L falls back to the manual values (TBSM Savings = $0,
+    # TT Promo Credits = Monthly Input flat-spread) so an in-progress ledger
+    # build can't corrupt the P&L.
+    ledger_cfg = AdLedgerConfig.objects.filter(pk=1).first()
+    if ledger_cfg and ledger_cfg.feed_pnl:
+        ledger_qs = AdLedgerDay.objects.filter(date__gte=start_date, date__lte=end_date)
+        for ald in ledger_qs:
+            d = ald.date
+            result[d]['   Less: TBSM Savings'] = ald.savings_tbsm or ZERO
+            result[d]['   Less: TT Promo Credits'] = ald.savings_promo or ZERO
 
     # Compute calc rows per date
     for d in dates:

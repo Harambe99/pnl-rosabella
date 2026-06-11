@@ -224,6 +224,10 @@ class AdLedgerConfig(models.Model):
     opening_discount = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.06'))
     tbsm_default_discount = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.06'),
         help_text="Discount applied to every Others/Increase balance load by default.")
+    feed_pnl = models.BooleanField(default=False,
+        help_text="When True, AdLedgerDay TBSM Savings + TT Promo Credits override the "
+                  "manual/zero values on Daily and Monthly P&L. Keep False until the engine "
+                  "is verified against the source exports.")
     updated_at = models.DateTimeField(auto_now=True)
 
 
