@@ -101,13 +101,16 @@ def import_manage_orders(file_obj, filename=''):
         return {'added': 0, 'skipped': 0, 'errors': ['Missing required columns']}
 
     cogs_map = _cogs_lookup()
-    existing = set(Order.objects.values_list('order_id', 'sku_id'))
+    # Fetch existing rows AND their current status so we can update if status changed
+    existing_status = {(o['order_id'], o['sku_id']): o['status']
+                       for o in Order.objects.values('order_id', 'sku_id', 'status')}
 
     chunk = []
     CHUNK_SIZE = 2000
     added_total = 0
     skipped = 0
     unmapped = set()
+    status_changes = []  # (order_id, sku_id, new_status) for re-imports where status updated
 
     def flush(c):
         if not c: return 0
@@ -120,14 +123,21 @@ def import_manage_orders(file_obj, filename=''):
         oid = _clean_str(row[c_oid])
         sku = _clean_str(row[c_sku])
         if not oid or not sku: continue
-        if (oid, sku) in existing:
-            skipped += 1; continue
-        existing.add((oid, sku))
+
+        new_status = _clean_str(row[c_status] if c_status >= 0 and c_status < len(row) else '')
+
+        if (oid, sku) in existing_status:
+            # Already imported. If status changed (e.g., Shipped → Canceled),
+            # update so the aggregator's Canceled-exclude filter applies.
+            if existing_status[(oid, sku)] != new_status and new_status:
+                status_changes.append((oid, sku, new_status))
+            skipped += 1
+            continue
+        existing_status[(oid, sku)] = new_status
 
         created = _to_date(row[c_created] if c_created < len(row) else None)
         if not created: continue
         qty = _to_int(row[c_qty] if c_qty < len(row) else 0)
-        status = _clean_str(row[c_status] if c_status >= 0 and c_status < len(row) else '')
         gross = _to_dec(row[c_gross] if c_gross >= 0 and c_gross < len(row) else 0)
         disc = -abs(_to_dec(row[c_disc] if c_disc >= 0 and c_disc < len(row) else 0))
         refund = -abs(_to_dec(row[c_refund] if c_refund >= 0 and c_refund < len(row) else 0))
@@ -139,7 +149,7 @@ def import_manage_orders(file_obj, filename=''):
 
         chunk.append(Order(
             order_id=oid, sku_id=sku, created_date=created, quantity=qty,
-            status=status, gross_sale=gross, seller_discount=disc,
+            status=new_status, gross_sale=gross, seller_discount=disc,
             order_refund=refund, cogs=cogs_val, source_file=filename,
         ))
         if len(chunk) >= CHUNK_SIZE:
@@ -147,10 +157,24 @@ def import_manage_orders(file_obj, filename=''):
             chunk = []
 
     added_total += flush(chunk)
+
+    # Apply status updates for re-imports (handles late cancellations)
+    status_updated = 0
+    if status_changes:
+        with transaction.atomic():
+            for oid, sku, new_status in status_changes:
+                Order.objects.filter(order_id=oid, sku_id=sku).update(status=new_status)
+                status_updated += 1
+
+    notes_parts = []
+    if unmapped: notes_parts.append('Unmapped SKUs: ' + ','.join(sorted(unmapped)))
+    if status_updated: notes_parts.append(f'Status updated on {status_updated} existing orders')
     ImportLog.objects.create(importer='manage_orders', filename=filename,
                              rows_added=added_total, rows_skipped=skipped,
-                             notes='Unmapped SKUs: ' + ','.join(sorted(unmapped)) if unmapped else '')
-    return {'added': added_total, 'skipped': skipped, 'unmapped_skus': sorted(unmapped)}
+                             notes=' | '.join(notes_parts))
+    return {'added': added_total, 'skipped': skipped,
+            'status_updated': status_updated,
+            'unmapped_skus': sorted(unmapped)}
 
 
 # ===========================================================================
