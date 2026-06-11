@@ -73,6 +73,17 @@
       <button class="btn btn-primary btn-sm" type="submit">Upload</button>
     </form>
   </div>
+
+  <div class="col-md-6 col-lg-4">
+    <form method="post" enctype="multipart/form-data" class="card p-3">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="ad_transactions">
+      <h5>7. Ad Transactions</h5>
+      <small class="text-muted mb-2">xlsx from Ads Manager → Tools → Transactions (3 sheets: Payments / Promotions / Others). Powers the Ad Discounts ledger + TBSM Savings &amp; TT Promo Credits lines.</small>
+      <input type="file" name="file" accept=".xlsx" class="form-control mb-2" required>
+      <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+    </form>
+  </div>
 </div>
 
 <h4 class="mt-4">Recent uploads</h4>

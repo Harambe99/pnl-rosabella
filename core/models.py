@@ -2,6 +2,7 @@
 Data models for PnL Rosabella web app.
 Dates stored as DateField (no time) — eliminates all TZ ambiguity.
 """
+from decimal import Decimal
 from django.db import models
 
 
@@ -164,6 +165,88 @@ class MonthlyInputAudit(models.Model):
 
     class Meta:
         ordering = ['-changed_at']
+
+
+class AdTransaction(models.Model):
+    """One row per transaction line from TikTok Ads Manager → Transactions export.
+    Three sheets feed this table: Payments (card charges), Promotions (free + agency promos),
+    Others (TBSM agency 'Increase balance' loads)."""
+    txn_id = models.CharField(max_length=64, blank=True, db_index=True)
+    txn_time = models.DateTimeField(db_index=True)
+    sheet = models.CharField(max_length=16, db_index=True)
+    txn_type = models.CharField(max_length=64, blank=True)
+    status = models.CharField(max_length=32, blank=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    details = models.CharField(max_length=255, blank=True)
+    type_label = models.CharField(max_length=64, blank=True)
+    source_file = models.CharField(max_length=255, blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('txn_id', 'sheet', 'txn_time', 'amount')]
+        indexes = [models.Index(fields=['txn_time'])]
+
+
+class AgencyPromoTag(models.Model):
+    """Tag a Promotions-sheet day as agency-purchased at a specific discount rate
+    (e.g. KDMT $300k delivered as promos at 10%). Promos NOT tagged here default to free."""
+    date = models.DateField(db_index=True)
+    min_amount = models.DecimalField(max_digits=12, decimal_places=2, default=10000,
+        help_text="Only the daily-net promo total >= this amount gets tagged; smaller promos stay free.")
+    discount_pct = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.10'))
+    note = models.CharField(max_length=128, blank=True)
+
+    class Meta:
+        ordering = ['date']
+        unique_together = [('date',)]
+
+
+class AgencyInvoice(models.Model):
+    """Manual list of agency invoices for cross-reference against TikTok loads."""
+    invoice_no = models.CharField(max_length=64, blank=True)
+    issue_date = models.DateField(null=True, blank=True)
+    loaded_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    discount_pct = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.06'))
+    amount_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    entity = models.CharField(max_length=128, blank=True)
+    notes = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ['-issue_date']
+
+
+class AdLedgerConfig(models.Model):
+    """Singleton (pk=1) config for the FIFO ad ledger engine."""
+    opening_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0,
+        help_text="Account balance carried into the start date (pre-window credit).")
+    opening_date = models.DateField(null=True, blank=True,
+        help_text="Date the opening balance applies as-of.")
+    opening_discount = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.06'))
+    tbsm_default_discount = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.06'),
+        help_text="Discount applied to every Others/Increase balance load by default.")
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class AdLedgerDay(models.Model):
+    """Computed daily snapshot from the FIFO ledger engine."""
+    date = models.DateField(unique=True)
+    ad_spend = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tbsm_in = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    promo_in = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    card_charge = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    opening_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    closing_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    funded = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    full_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    savings_tbsm = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    savings_promo = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    actual_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    funding_source = models.CharField(max_length=64, blank=True)
+    discount_on_funded = models.DecimalField(max_digits=6, decimal_places=4, default=0)
+    effective_discount = models.DecimalField(max_digits=6, decimal_places=4, default=0)
+
+    class Meta:
+        ordering = ['date']
 
 
 class ImportLog(models.Model):

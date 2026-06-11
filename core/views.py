@@ -8,11 +8,13 @@ from django.http import HttpResponse
 from django.contrib import messages
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import COGSItem, MonthlyInput, ImportLog, MonthlyInputAudit
+from .models import (COGSItem, MonthlyInput, ImportLog, MonthlyInputAudit,
+                     AdLedgerDay, AdLedgerConfig, AgencyPromoTag, AgencyInvoice,
+                     AdTransaction)
 from .aggregator import compute_daily_pnl, compute_monthly_pnl, PNL_ROW_LAYOUT
 from .importers import (import_manage_orders, import_settlement,
                         import_shop_analytics, import_ad_spend, import_fbt_billing,
-                        import_seller_shipping)
+                        import_seller_shipping, import_ad_transactions)
 
 
 def login_view(request):
@@ -134,6 +136,8 @@ def upload(request):
                 result = import_fbt_billing(f, period, f.name)
             elif kind == 'seller_shipping':
                 result = import_seller_shipping(f, f.name)
+            elif kind == 'ad_transactions':
+                result = import_ad_transactions(f, f.name)
             else:
                 messages.error(request, 'Unknown import type.')
                 return redirect('upload')
@@ -318,6 +322,115 @@ def export_pnl(request):
     resp = HttpResponse(buf.getvalue(), content_type='text/csv')
     resp['Content-Disposition'] = f'attachment; filename="{filename}"'
     return resp
+
+
+def ad_discounts(request):
+    """Daily TikTok ad-account ledger: spend, balance, funding source, effective discount.
+    Manages opening balance, agency-promo tags, and agency invoices."""
+    from datetime import datetime as _dt
+    from .ad_ledger import recompute_ledger
+
+    def _parse_date(s):
+        if not s: return None
+        try: return _dt.strptime(s, '%Y-%m-%d').date()
+        except Exception: return None
+
+    try:
+        year = int(request.GET.get('year', 2026))
+        if year < 2020 or year > 2099: year = 2026
+    except (TypeError, ValueError):
+        year = 2026
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'save_config':
+            cfg, _c = AdLedgerConfig.objects.get_or_create(pk=1)
+            cfg.opening_balance = Decimal(request.POST.get('opening_balance', '0') or '0')
+            cfg.opening_date = _parse_date(request.POST.get('opening_date'))
+            cfg.opening_discount = Decimal(request.POST.get('opening_discount', '0.06') or '0.06')
+            cfg.tbsm_default_discount = Decimal(request.POST.get('tbsm_default_discount', '0.06') or '0.06')
+            cfg.save()
+            recompute_ledger(date(year, 1, 1), date(year, 12, 31))
+            messages.success(request, 'Config saved + ledger recomputed.')
+        elif action == 'add_tag':
+            d = _parse_date(request.POST.get('tag_date'))
+            if d:
+                AgencyPromoTag.objects.update_or_create(
+                    date=d,
+                    defaults={
+                        'min_amount': Decimal(request.POST.get('tag_min', '10000') or '10000'),
+                        'discount_pct': Decimal(request.POST.get('tag_disc', '0.10') or '0.10'),
+                        'note': request.POST.get('tag_note', ''),
+                    },
+                )
+                recompute_ledger(date(year, 1, 1), date(year, 12, 31))
+                messages.success(request, f'Agency promo tag saved for {d}.')
+        elif action == 'delete_tag':
+            try:
+                AgencyPromoTag.objects.filter(pk=int(request.POST.get('tag_id'))).delete()
+                recompute_ledger(date(year, 1, 1), date(year, 12, 31))
+                messages.success(request, 'Tag deleted.')
+            except (TypeError, ValueError):
+                pass
+        elif action == 'add_invoice':
+            AgencyInvoice.objects.create(
+                invoice_no=request.POST.get('inv_no', ''),
+                issue_date=_parse_date(request.POST.get('inv_date')),
+                loaded_value=Decimal(request.POST.get('inv_loaded', '0') or '0'),
+                discount_pct=Decimal(request.POST.get('inv_disc', '0.06') or '0.06'),
+                amount_paid=Decimal(request.POST.get('inv_paid', '0') or '0'),
+                entity=request.POST.get('inv_entity', ''),
+                notes=request.POST.get('inv_notes', ''),
+            )
+            messages.success(request, 'Invoice added.')
+        elif action == 'delete_invoice':
+            try:
+                AgencyInvoice.objects.filter(pk=int(request.POST.get('inv_id'))).delete()
+                messages.success(request, 'Invoice deleted.')
+            except (TypeError, ValueError):
+                pass
+        elif action == 'recompute':
+            recompute_ledger(date(year, 1, 1), date(year, 12, 31))
+            messages.success(request, f'Ledger recomputed for {year}.')
+        return redirect(f"{request.path}?year={year}")
+
+    cfg, _c = AdLedgerConfig.objects.get_or_create(pk=1)
+    days = list(AdLedgerDay.objects.filter(date__year=year).order_by('date'))
+    tags = AgencyPromoTag.objects.all()
+    invoices = AgencyInvoice.objects.all()
+    txn_count = AdTransaction.objects.count()
+
+    # Monthly rollup
+    monthly = {}
+    for d in days:
+        m = d.date.strftime('%Y-%m')
+        if m not in monthly:
+            monthly[m] = {'spend': Decimal('0'), 'funded': Decimal('0'),
+                          'full_price': Decimal('0'), 'card': Decimal('0'),
+                          'actual_cost': Decimal('0'),
+                          'savings_tbsm': Decimal('0'), 'savings_promo': Decimal('0'),
+                          'end_balance': Decimal('0')}
+        m_row = monthly[m]
+        m_row['spend'] += d.ad_spend
+        m_row['funded'] += d.funded
+        m_row['full_price'] += d.full_price
+        m_row['card'] += d.card_charge
+        m_row['actual_cost'] += d.actual_cost
+        m_row['savings_tbsm'] += d.savings_tbsm
+        m_row['savings_promo'] += d.savings_promo
+        m_row['end_balance'] = d.closing_balance
+    for m_key, row in monthly.items():
+        row['eff_disc'] = (
+            (Decimal('1') - row['actual_cost'] / row['spend']) * 100
+            if row['spend'] else Decimal('0'))
+    monthly_sorted = sorted(monthly.items())
+
+    return render(request, 'core/ad_discounts.html', {
+        'year': year, 'prev_year': year - 1, 'next_year': year + 1,
+        'days': days, 'monthly': monthly_sorted,
+        'config': cfg, 'tags': tags, 'invoices': invoices,
+        'txn_count': txn_count,
+    })
 
 
 def health(request):

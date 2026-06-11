@@ -9,7 +9,7 @@ from decimal import Decimal
 from django.db import transaction
 import openpyxl
 
-from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, COGSItem, ImportLog, SellerShipmentCost
+from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, COGSItem, ImportLog, SellerShipmentCost, AdTransaction
 
 
 def _to_dec(v):
@@ -537,3 +537,88 @@ def import_fbt_billing(file_obj, period, filename=''):
     ImportLog.objects.create(importer='fbt_billing', filename=filename,
                              rows_added=count, notes=f'Period: {period}')
     return {'added': count, 'period': period}
+
+
+# ===========================================================================
+# 7. Ad Transactions importer (TikTok Ads Manager → Transactions XLSX)
+# ===========================================================================
+def import_ad_transactions(file_obj, filename=''):
+    """Read 3 sheets (Payments / Promotions / Others) and upsert AdTransaction rows.
+    Recomputes the AdLedgerDay snapshot over the file's date range."""
+    import pandas as pd
+    try:
+        xl = pd.ExcelFile(file_obj)
+    except Exception as e:
+        return {'added': 0, 'skipped': 0, 'errors': [f'Could not open file: {e}']}
+
+    required = {'Payments', 'Promotions', 'Others'}
+    actual = set(xl.sheet_names)
+    if not required.issubset(actual):
+        return {'added': 0, 'skipped': 0,
+                'errors': [f'Expected sheets {required}; got {actual}']}
+
+    buf = []
+    min_d = None
+    max_d = None
+    for sheet in ['Payments', 'Promotions', 'Others']:
+        df = pd.read_excel(xl, sheet)
+        # Normalize column lookup
+        cols = {c.strip(): c for c in df.columns}
+        def col(name):
+            for k in cols:
+                if k.lower() == name.lower(): return cols[k]
+            return None
+        c_time = col('Transaction time')
+        c_id = col('Transaction ID')
+        c_amt = col('Amount')
+        c_type = col('Transaction type')
+        c_status = col('Status')
+        c_details = col('Details')
+        c_typelabel = col('Type')
+
+        if not c_time or not c_amt:
+            continue
+
+        for _, row in df.iterrows():
+            txn_time = pd.to_datetime(row.get(c_time), errors='coerce')
+            if pd.isna(txn_time): continue
+            txn_id = str(row.get(c_id, '') or '').strip() if c_id else ''
+            amount = _to_dec(row.get(c_amt))
+            txn_type = (str(row.get(c_type, '') or '').strip() if c_type else '')
+            status = (str(row.get(c_status, '') or '').strip() if c_status else '')
+            details = (str(row.get(c_details, '') or '').strip() if c_details else '')
+            type_label = (str(row.get(c_typelabel, '') or '').strip() if c_typelabel else '')
+            buf.append(AdTransaction(
+                txn_id=txn_id, txn_time=txn_time.to_pydatetime(), sheet=sheet,
+                txn_type=txn_type, status=status, amount=amount,
+                details=details, type_label=type_label, source_file=filename,
+            ))
+            d = txn_time.date()
+            if min_d is None or d < min_d: min_d = d
+            if max_d is None or d > max_d: max_d = d
+
+    if not buf:
+        return {'added': 0, 'skipped': 0, 'errors': ['No usable rows in file']}
+
+    with transaction.atomic():
+        AdTransaction.objects.bulk_create(
+            buf, batch_size=500,
+            update_conflicts=True,
+            unique_fields=['txn_id', 'sheet', 'txn_time', 'amount'],
+            update_fields=['txn_type', 'status', 'details', 'type_label', 'source_file'],
+        )
+
+    # Recompute the ledger over a slightly wider range so spend days outside the txn
+    # window but inside the spend table also get updated balances.
+    from .ad_ledger import recompute_ledger
+    if min_d and max_d:
+        # Extend to end-of-month on both sides for safety
+        end_recompute = max_d.replace(day=1)
+        from calendar import monthrange
+        end_recompute = end_recompute.replace(day=monthrange(end_recompute.year, end_recompute.month)[1])
+        recompute_ledger(min_d.replace(day=1), end_recompute)
+
+    ImportLog.objects.create(importer='ad_transactions', filename=filename,
+                             rows_added=len(buf), rows_skipped=0,
+                             notes=f'Date range: {min_d} → {max_d}')
+    return {'added': len(buf), 'skipped': 0, 'date_range': f'{min_d} → {max_d}'}

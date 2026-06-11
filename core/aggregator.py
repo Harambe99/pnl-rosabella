@@ -5,7 +5,7 @@ from decimal import Decimal
 from datetime import date, timedelta
 from calendar import monthrange
 from django.db.models import Sum, Q
-from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, SellerShipmentCost
+from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, SellerShipmentCost, AdLedgerDay
 
 
 ZERO = Decimal('0')
@@ -162,6 +162,17 @@ def compute_daily_pnl(start_date, end_date):
         if mkey in months_with_ship:
             result[d]['   Cost to Ship to Customer'] = -(daily_ship.get(d, ZERO))
 
+    # Ad Ledger override — when AdTransaction data has been imported and the FIFO
+    # engine has produced AdLedgerDay rows, use the per-day TBSM Savings and Free
+    # Promo Credits from the engine instead of the manual monthly flat-spread.
+    # ad_spend stays sourced from AdSpendDay (already populated above); the engine
+    # snapshot mirrors it but we keep AdSpendDay as the source of truth for raw spend.
+    ledger_qs = AdLedgerDay.objects.filter(date__gte=start_date, date__lte=end_date)
+    for ald in ledger_qs:
+        d = ald.date
+        result[d]['   Less: TBSM Savings'] = ald.savings_tbsm or ZERO
+        result[d]['   Less: TT Promo Credits'] = ald.savings_promo or ZERO
+
     # Compute calc rows per date
     for d in dates:
         row = result[d]
@@ -194,12 +205,12 @@ def compute_daily_pnl(start_date, end_date):
                     '   Co-funded Promotion (seller-funded)']
         row['GROSS PROFIT'] = sum((row.get(x, ZERO) for x in gp_items), ZERO)
 
-        # Ad spend: true value only. No TBSM auto-calc.
-        # ad is already negative; tt_promo is a positive credit that reduces the negative total.
+        # Ad spend: raw cost minus TBSM Savings (FIFO engine) minus TT Promo Credits.
+        # ad is negative; savings are positive credits that reduce the negative total.
         ad = row.get('Ad Spend — Direct to TikTok (cash)', ZERO)
-        row['   Less: TBSM Savings (6%)'] = ZERO
+        tbsm_sav = row.get('   Less: TBSM Savings', ZERO)
         tt_promo = row.get('   Less: TT Promo Credits', ZERO)
-        row['Total Ad Spend'] = ad + tt_promo
+        row['Total Ad Spend'] = ad + tbsm_sav + tt_promo
 
         # TOTAL MARKETING
         row['TOTAL MARKETING'] = (row['Total Ad Spend']
@@ -281,8 +292,8 @@ PNL_ROW_LAYOUT = [
     ('', 'blank'),
     ('MARKETING', 'section'),
     ('Ad Spend — Direct to TikTok (cash)', 'row'),
+    ('   Less: TBSM Savings', 'row'),
     ('   Less: TT Promo Credits', 'row'),
-    ('   Less: TBSM Savings (6%)', 'row'),
     ('Total Ad Spend', 'total'),
     ('Creator Commissions', 'sub'),
     ('   Platform (Affiliate Commission)', 'row'),

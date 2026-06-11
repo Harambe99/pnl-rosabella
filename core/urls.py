@@ -7,6 +7,7 @@ urlpatterns = [
     path('upload/', views.upload, name='upload'),
     path('cogs/', views.cogs, name='cogs'),
     path('monthly-inputs/', views.monthly_inputs, name='monthly_inputs'),
+    path('ad-discounts/', views.ad_discounts, name='ad_discounts'),
     path('history/', views.history, name='history'),
     path('readme/', views.readme, name='readme'),
     path('export/', views.export_pnl, name='export_pnl'),

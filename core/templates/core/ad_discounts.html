@@ -1,0 +1,234 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}Ad Discounts — {{ year }}{% endblock %}
+{% block content %}
+<style>
+  .ad-summary-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 18px; }
+  .ad-summary-card h6 { color: #4a5568; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 6px; }
+  .ad-summary-card .val { font-size: 22px; font-weight: 600; color: #1a202c; }
+  table.ad-table { font-size: 12px; white-space: nowrap; }
+  table.ad-table th { background: #2D3748; color: #fff; padding: 8px 10px; text-align: right; }
+  table.ad-table th:first-child { text-align: left; }
+  table.ad-table td { padding: 4px 10px; text-align: right; border: 1px solid #e2e8f0; background: #fff; }
+  table.ad-table td:first-child { text-align: left; font-weight: 500; }
+  table.ad-table tr.total td { background: #edf2f7; font-weight: bold; border-top: 2px solid #2D3748; }
+  .neg { color: #c53030; }
+  .pos { color: #2f855a; }
+  .src-tbsm { background: #c6f6d5; color: #22543d; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+  .src-promo { background: #bee3f8; color: #2c5282; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+  .src-agency { background: #faf089; color: #744210; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+  .src-full { background: #fed7d7; color: #742a2a; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+  .src-mixed { background: #e9d8fd; color: #44337a; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+  .src-none { background: #edf2f7; color: #4a5568; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="m-0">Ad Discounts — {{ year }}</h2>
+  <div>
+    <a href="?year={{ prev_year }}" class="btn btn-outline-secondary btn-sm">← {{ prev_year }}</a>
+    <a href="?year={{ next_year }}" class="btn btn-outline-secondary btn-sm">{{ next_year }} →</a>
+    <form method="post" class="d-inline ms-2">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="recompute">
+      <button class="btn btn-warning btn-sm" type="submit"
+              title="Re-run the FIFO engine over the current year">↻ Recompute ledger</button>
+    </form>
+  </div>
+</div>
+
+<p class="text-muted">
+  Daily FIFO reconciliation of your TikTok ad account: which days were funded by discounted balance vs full-price card-billed.
+  Powered by the most recent Ad Transactions upload ({{ txn_count|intcomma }} transactions on file).
+  These daily values feed the <em>Less: TBSM Savings</em> and <em>Less: TT Promo Credits</em> lines on Daily &amp; Monthly P&amp;L.
+</p>
+
+<!-- ============= Monthly summary ============= -->
+<h4 class="mt-4">Monthly summary</h4>
+<div class="table-responsive">
+<table class="ad-table">
+  <thead><tr>
+    <th>Month</th><th>Ad Spend</th><th>Funded</th><th>Full-Price (modeled)</th>
+    <th>Card Charged (actual)</th><th>TBSM Savings</th><th>Promo Credits</th>
+    <th>Actual Cost</th><th>Eff. Discount %</th><th>End Balance</th>
+  </tr></thead>
+  <tbody>
+    {% for m, r in monthly %}
+    <tr>
+      <td>{{ m }}</td>
+      <td>${{ r.spend|floatformat:2|intcomma }}</td>
+      <td>${{ r.funded|floatformat:2|intcomma }}</td>
+      <td>${{ r.full_price|floatformat:2|intcomma }}</td>
+      <td>${{ r.card|floatformat:2|intcomma }}</td>
+      <td class="pos">${{ r.savings_tbsm|floatformat:2|intcomma }}</td>
+      <td class="pos">${{ r.savings_promo|floatformat:2|intcomma }}</td>
+      <td>${{ r.actual_cost|floatformat:2|intcomma }}</td>
+      <td>{{ r.eff_disc|floatformat:2 }}%</td>
+      <td>${{ r.end_balance|floatformat:2|intcomma }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="10" class="text-muted">No ledger data yet — upload Ad Transactions and configure opening balance below.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- ============= Daily ledger ============= -->
+<h4 class="mt-4">Daily ledger</h4>
+<div class="table-responsive" style="max-height: 600px; overflow: auto;">
+<table class="ad-table">
+  <thead><tr>
+    <th>Date</th><th>Ad Spend</th>
+    <th>TBSM In</th><th>Promo In</th><th>Card</th>
+    <th>Opening Bal</th><th>Closing Bal</th>
+    <th>Funded</th><th>Full-Price</th>
+    <th>Source</th>
+    <th>Disc on Funded</th><th>Actual Cost</th><th>Eff. Disc %</th>
+  </tr></thead>
+  <tbody>
+    {% for d in days %}
+    <tr>
+      <td>{{ d.date|date:"Y-m-d" }}</td>
+      <td>${{ d.ad_spend|floatformat:2|intcomma }}</td>
+      <td>{% if d.tbsm_in %}<span class="pos">+${{ d.tbsm_in|floatformat:2|intcomma }}</span>{% endif %}</td>
+      <td>{% if d.promo_in %}<span class="pos">+${{ d.promo_in|floatformat:2|intcomma }}</span>{% endif %}</td>
+      <td>{% if d.card_charge %}${{ d.card_charge|floatformat:2|intcomma }}{% endif %}</td>
+      <td>${{ d.opening_balance|floatformat:2|intcomma }}</td>
+      <td>${{ d.closing_balance|floatformat:2|intcomma }}</td>
+      <td>${{ d.funded|floatformat:2|intcomma }}</td>
+      <td>${{ d.full_price|floatformat:2|intcomma }}</td>
+      <td style="text-align:center;">
+        {% if d.funding_source == 'Full price' %}<span class="src-full">{{ d.funding_source }}</span>
+        {% elif 'Free promo' in d.funding_source %}<span class="src-promo">{{ d.funding_source }}</span>
+        {% elif 'Agency promo' in d.funding_source %}<span class="src-agency">{{ d.funding_source }}</span>
+        {% elif d.funding_source == 'Mixed' %}<span class="src-mixed">{{ d.funding_source }}</span>
+        {% elif 'TBSM' in d.funding_source %}<span class="src-tbsm">{{ d.funding_source }}</span>
+        {% else %}<span class="src-none">—</span>{% endif %}
+      </td>
+      <td>{{ d.discount_on_funded|floatformat:4 }}</td>
+      <td>${{ d.actual_cost|floatformat:2|intcomma }}</td>
+      <td>{{ d.effective_discount|floatformat:4 }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="13" class="text-muted">No daily rows — upload Ad Transactions to populate.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- ============= Config + Tags + Invoices ============= -->
+<div class="row mt-5 g-3">
+  <div class="col-lg-4">
+    <div class="card p-3">
+      <h5>Opening balance</h5>
+      <small class="text-muted">Account balance carried into the start date (pre-window credit).</small>
+      <form method="post" class="mt-2">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save_config">
+        <label class="form-label small mb-1">Opening date</label>
+        <input type="date" name="opening_date" class="form-control form-control-sm mb-2"
+               value="{{ config.opening_date|date:'Y-m-d' }}">
+        <label class="form-label small mb-1">Opening amount ($)</label>
+        <input type="number" step="0.01" name="opening_balance" class="form-control form-control-sm mb-2"
+               value="{{ config.opening_balance }}">
+        <label class="form-label small mb-1">Opening discount (e.g. 0.06)</label>
+        <input type="number" step="0.0001" name="opening_discount" class="form-control form-control-sm mb-2"
+               value="{{ config.opening_discount }}">
+        <label class="form-label small mb-1">Default TBSM discount</label>
+        <input type="number" step="0.0001" name="tbsm_default_discount" class="form-control form-control-sm mb-2"
+               value="{{ config.tbsm_default_discount }}">
+        <button type="submit" class="btn btn-primary btn-sm w-100">Save + Recompute</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card p-3">
+      <h5>Agency promo tags</h5>
+      <small class="text-muted">Promotions-sheet days that are actually agency-purchased (e.g. KDMT 10%). Untagged promos = free.</small>
+      <table class="table table-sm mt-2 mb-2">
+        <thead><tr><th>Date</th><th>Min $</th><th>Discount</th><th>Note</th><th></th></tr></thead>
+        <tbody>
+        {% for t in tags %}
+        <tr>
+          <td>{{ t.date|date:"Y-m-d" }}</td>
+          <td>${{ t.min_amount|floatformat:0|intcomma }}</td>
+          <td>{{ t.discount_pct }}</td>
+          <td><small>{{ t.note }}</small></td>
+          <td>
+            <form method="post" class="d-inline">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete_tag">
+              <input type="hidden" name="tag_id" value="{{ t.id }}">
+              <button class="btn btn-link btn-sm p-0 text-danger">×</button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-muted">No tags yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="add_tag">
+        <div class="row g-1">
+          <div class="col-5"><input type="date" name="tag_date" class="form-control form-control-sm" required></div>
+          <div class="col-3"><input type="number" step="0.01" name="tag_min" placeholder="min $" class="form-control form-control-sm" value="10000"></div>
+          <div class="col-4"><input type="number" step="0.0001" name="tag_disc" placeholder="disc" class="form-control form-control-sm" value="0.10"></div>
+        </div>
+        <input type="text" name="tag_note" placeholder="Note (e.g. KDMT 10%)" class="form-control form-control-sm mt-1 mb-2">
+        <button type="submit" class="btn btn-primary btn-sm w-100">Add tag + Recompute</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card p-3">
+      <h5>Agency invoices</h5>
+      <small class="text-muted">Manual record for cross-checking what you've been billed vs what loaded into TikTok.</small>
+      <div style="max-height: 200px; overflow: auto;">
+      <table class="table table-sm mt-2 mb-2">
+        <thead><tr><th>#</th><th>Date</th><th>Loaded</th><th>Paid</th><th></th></tr></thead>
+        <tbody>
+        {% for i in invoices %}
+        <tr>
+          <td>{{ i.invoice_no }}</td>
+          <td>{{ i.issue_date|date:"Y-m-d" }}</td>
+          <td>${{ i.loaded_value|floatformat:0|intcomma }}</td>
+          <td>${{ i.amount_paid|floatformat:0|intcomma }}</td>
+          <td>
+            <form method="post" class="d-inline">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete_invoice">
+              <input type="hidden" name="inv_id" value="{{ i.id }}">
+              <button class="btn btn-link btn-sm p-0 text-danger">×</button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-muted">No invoices yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="add_invoice">
+        <div class="row g-1 mb-1">
+          <div class="col-4"><input type="text" name="inv_no" placeholder="#" class="form-control form-control-sm"></div>
+          <div class="col-8"><input type="date" name="inv_date" class="form-control form-control-sm"></div>
+        </div>
+        <div class="row g-1 mb-1">
+          <div class="col-4"><input type="number" step="0.01" name="inv_loaded" placeholder="loaded $" class="form-control form-control-sm"></div>
+          <div class="col-4"><input type="number" step="0.0001" name="inv_disc" placeholder="disc" value="0.06" class="form-control form-control-sm"></div>
+          <div class="col-4"><input type="number" step="0.01" name="inv_paid" placeholder="paid $" class="form-control form-control-sm"></div>
+        </div>
+        <input type="text" name="inv_entity" placeholder="Entity (TBSM / KDMT etc.)" class="form-control form-control-sm mb-1">
+        <input type="text" name="inv_notes" placeholder="Notes" class="form-control form-control-sm mb-2">
+        <button type="submit" class="btn btn-primary btn-sm w-100">Add invoice</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
