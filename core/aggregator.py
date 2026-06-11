@@ -76,7 +76,11 @@ def compute_daily_pnl(start_date, end_date):
         result[d]['   Refund Admin Fee'] = r['refund_admin'] or ZERO
         result[d]['   FBT Fulfillment Fee'] = r['fbt_fee'] or ZERO
         result[d]['   FBT Fulfillment Reimbursement'] = r['fbt_reimb'] or ZERO
-        result[d]['   Seller Shipping'] = r['shipping'] or ZERO
+        # Settlement's `Shipping` column duplicates the FBT fulfillment fee
+        # for FBT orders (same dollars, two accounting views). Subtract the
+        # FBT fee to recover only the seller-shipped credits and opt-out fees.
+        # Verified empirically: 5,153 of 5,224 May FBT orders had Shipping = FBT fee exactly.
+        result[d]['   Seller Shipping'] = (r['shipping'] or ZERO) - (r['fbt_fee'] or ZERO)
         result[d]['   TT Shipping Subsidy (net)'] = r['tt_ship_net'] or ZERO
         result[d]['   Co-funded Promotion (seller-funded)'] = r['cofunded_promo'] or ZERO
         result[d]['Less: Refunds'] = r['refund_total'] or ZERO
