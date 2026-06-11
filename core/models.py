@@ -60,6 +60,11 @@ class SettlementRow(models.Model):
     fbt_reimb = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     shipping = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     tt_ship_net = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tt_shop_shipping_incentive = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    shipping_fee_subsidy = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    customer_shipping_fee_offset = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    customer_paid_shipping_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    customer_paid_shipping_refund = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     cofunded_promo = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     refund_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 

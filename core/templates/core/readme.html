@@ -201,7 +201,7 @@
     <tr><th>Parser</th><td>pandas (NOT openpyxl read-only — see Gotchas)</td></tr>
     <tr><th>Key columns</th><td><code>Order/adjustment ID</code>, <code>Statement ID</code>, <code>Type</code>, <code>Order created date</code>, <code>Statement date</code>, plus ~20 fee/refund/reimbursement columns</td></tr>
     <tr><th>Dedup key</th><td><code>(Order ID, Statement ID, Type)</code></td></tr>
-    <tr><th>Powers</th><td>Refunds, Referral Fee, Affiliate Commission, Campaign Service Fee, Shipping, TT Shipping Subsidy, Co-funded Promo, Chargebacks, Violation Fee, FBT Warehouse Compensation, Logistics Reimbursement, Rebate, TikTok Shop Reimb, Unclassified Adjustments</td></tr>
+    <tr><th>Powers</th><td>Refunds, Referral Fee, Affiliate Commission, Campaign Service Fee, FBT Fulfillment Fee/Reimb, TT Shop Shipping Incentive, Shipping Fee Subsidy, Customer Shipping Fee Offset, Customer-Paid Shipping Fee, Customer-Paid Shipping Refund, Co-funded Promo, Chargebacks, Violation Fee, FBT Warehouse Compensation, Logistics Reimbursement, Rebate, TikTok Shop Reimb, Unclassified Adjustments</td></tr>
     <tr><th>Attribution</th><td>Rows count on the day the order was created, not the settlement date. May's file backfills April.</td></tr>
     <tr><th>Check</th><td>Filter to one Order Created Date, sum a fee column, compare to the matching row on that day's Daily P&amp;L.</td></tr>
   </tbody>
@@ -366,24 +366,47 @@
 </div>
 
 <div class="line-item">
-  <div class="li-name">Seller Shipping <span class="badge-src badge-settle">Settlement</span></div>
-  <div class="li-from"><b>From:</b> Settlement, <code>Shipping</code> column, on Order-type rows.</div>
-  <div class="li-formula"><b>Formula:</b> sum(Shipping) by order created-date.</div>
-  <div class="li-why"><b>What this is:</b> TikTok's record of the shipping component charged against your payout — a cost to you, not revenue. Verified empirically: in a May settlement file with ~17K Order rows, this column was negative on 17,559 of them. For FBT orders it's the shipping fee TikTok collects from the customer that passes through to TikTok. For seller-shipped orders it's TikTok's recorded shipping liability against your payout. <strong>Not</strong> the cost you paid your 3PL — that's <em>Cost to Ship to Customer</em> below.</div>
-  <div class="li-watch"><b>Common confusion:</b> the column name "Shipping" makes it sound like revenue. It's not — TikTok deducts it from your payout.</div>
+  <div class="li-name">Shipping section — overview</div>
+  <div class="li-why">
+    TikTok's <code>Shipping</code> parent line on the Reports tab (e.g., <strong>-$77,565.91</strong> for May 2026) is the sum of <strong>seven</strong> sub-components. We surface each of them as its own line below so the P&L matches the Reports tab exactly when summed, and so each piece is independently visible. Older versions of this app summed some of these into composite lines (<em>Seller Shipping</em>, <em>TT Shipping Subsidy (net)</em>) — both have been retired because they overlapped with the components and double-counted small amounts.
+  </div>
 </div>
 
 <div class="line-item">
-  <div class="li-name">TT Shipping Subsidy (net) <span class="badge-src badge-settle">Settlement</span></div>
-  <div class="li-from"><b>From:</b> Settlement, three columns summed — <code>TikTok Shop shipping incentive</code> + <code>Shipping fee subsidy</code> + <code>Customer shipping fee offset</code>.</div>
-  <div class="li-formula"><b>Formula:</b> sum of all three, by order created-date.</div>
-  <div class="li-why"><b>What each column means:</b><br>
-    • <code>TikTok Shop shipping incentive</code> (positive) — TikTok credits seller; per-order shipping subsidy.<br>
-    • <code>Shipping fee subsidy</code> (positive when present) — third subsidy program, often $0 for most shops.<br>
-    • <code>Customer shipping fee offset</code> (negative) — TikTok offsetting the customer-paid shipping fee (mirror of the incentive).
-    <br><br>
-    <strong>Net effect:</strong> the incentive and the offset usually nearly cancel each other (e.g., May: +$95K incentive, -$96K offset, net ~-$1K). The "Subsidy (net)" name reflects this — what TikTok contributes after the offset is applied.
-  </div>
+  <div class="li-name">TT Shop Shipping Incentive <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>TikTok Shop shipping incentive</code> column, on Order-type rows.</div>
+  <div class="li-formula"><b>Formula:</b> sum by order created-date.</div>
+  <div class="li-why"><b>What it is:</b> when an order qualifies for free shipping (customer paid $0 for shipping), TikTok credits the seller the equivalent shipping fee so the seller appears whole. May 2026: +$95,400.72.</div>
+  <div class="li-watch"><b>Pair:</b> almost always cancelled per-row by <em>Customer Shipping Fee Offset</em>. Net seller impact ≈ $0.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Shipping Fee Subsidy <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>Shipping fee subsidy</code> column, on Order-type rows.</div>
+  <div class="li-formula"><b>Formula:</b> sum by order created-date.</div>
+  <div class="li-why"><b>What it is:</b> a separate subsidy program (typically for seller-shipped orders). Usually $0 — only fires when a specific seller subsidy program is active. May 2026: $0.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Customer Shipping Fee Offset <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>Customer shipping fee offset</code> column, on Order-type rows.</div>
+  <div class="li-formula"><b>Formula:</b> sum by order created-date. Negative.</div>
+  <div class="li-why"><b>What it is:</b> TikTok's clawback that mirrors either the Shipping Incentive OR the Customer-Paid Shipping Fee — it's TikTok keeping the shipping money to pay the carrier. Per TikTok docs: "typically used to offset either TikTok Shop's shipping incentive or customer-paid shipping fees, resulting in a net charge of $0 to you." May 2026: −$96,508.91.</div>
+  <div class="li-watch"><b>Why it doesn't always wash:</b> if the seller has opted into seller-funded shipping for FBT-fulfilled products, the offset hits with no matching credit. That's the source of the ~$1K residual after the incentive/offset cancel out.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Customer-Paid Shipping Fee <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>Customer-paid shipping fee</code> column, on Order-type rows.</div>
+  <div class="li-formula"><b>Formula:</b> sum by order created-date. Positive.</div>
+  <div class="li-why"><b>What it is:</b> the shipping fee the customer actually paid (orders that didn't qualify for free shipping). On a fully-free-shipping shop this column is mostly $0; with a $30 free-shipping threshold, sub-threshold orders contribute. May 2026: +$3,432.80.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">Customer-Paid Shipping Refund <span class="badge-src badge-settle">Settlement</span></div>
+  <div class="li-from"><b>From:</b> Settlement, <code>Customer-paid shipping fee refund</code> column, on Order-type rows.</div>
+  <div class="li-formula"><b>Formula:</b> sum by order created-date. Negative.</div>
+  <div class="li-why"><b>What it is:</b> the seller-side reversal when a customer's shipping payment is refunded (returns or cancellations on paid-shipping orders). May 2026: −$158.57.</div>
 </div>
 
 <div class="line-item">

@@ -55,7 +55,11 @@ def compute_daily_pnl(start_date, end_date):
         fbt_fee=Sum('fbt_fee'),
         fbt_reimb=Sum('fbt_reimb'),
         shipping=Sum('shipping'),
-        tt_ship_net=Sum('tt_ship_net'),
+        tt_shop_shipping_incentive=Sum('tt_shop_shipping_incentive'),
+        shipping_fee_subsidy=Sum('shipping_fee_subsidy'),
+        customer_shipping_fee_offset=Sum('customer_shipping_fee_offset'),
+        customer_paid_shipping_fee=Sum('customer_paid_shipping_fee'),
+        customer_paid_shipping_refund=Sum('customer_paid_shipping_refund'),
         cofunded_promo=Sum('cofunded_promo'),
         refund_total=Sum('refund_total'),
         chargeback=Sum('chargeback'),
@@ -74,14 +78,19 @@ def compute_daily_pnl(start_date, end_date):
         result[d]['   Platform (Affiliate Commission)'] = r['affiliate'] or ZERO
         result[d]['   Campaign Service Fee'] = r['campaign'] or ZERO
         result[d]['   Refund Admin Fee'] = r['refund_admin'] or ZERO
+        # Settlement's `Shipping` column (col U) is the parent total of 7 sub-components:
+        #   FBT fulfillment fee, FBT fulfillment reimbursement,
+        #   TT Shop shipping incentive, Shipping fee subsidy, Customer shipping fee offset,
+        #   Customer-paid shipping fee, Customer-paid shipping fee refund.
+        # Surfacing each component as its own line gives full P&L visibility and matches
+        # TikTok's Reports tab "Shipping" parent exactly when summed.
         result[d]['   FBT Fulfillment Fee'] = r['fbt_fee'] or ZERO
         result[d]['   FBT Fulfillment Reimbursement'] = r['fbt_reimb'] or ZERO
-        # Settlement's `Shipping` column duplicates the FBT fulfillment fee
-        # for FBT orders (same dollars, two accounting views). Subtract the
-        # FBT fee to recover only the seller-shipped credits and opt-out fees.
-        # Verified empirically: 5,153 of 5,224 May FBT orders had Shipping = FBT fee exactly.
-        result[d]['   Seller Shipping'] = (r['shipping'] or ZERO) - (r['fbt_fee'] or ZERO)
-        result[d]['   TT Shipping Subsidy (net)'] = r['tt_ship_net'] or ZERO
+        result[d]['   TT Shop Shipping Incentive'] = r['tt_shop_shipping_incentive'] or ZERO
+        result[d]['   Shipping Fee Subsidy'] = r['shipping_fee_subsidy'] or ZERO
+        result[d]['   Customer Shipping Fee Offset'] = r['customer_shipping_fee_offset'] or ZERO
+        result[d]['   Customer-Paid Shipping Fee'] = r['customer_paid_shipping_fee'] or ZERO
+        result[d]['   Customer-Paid Shipping Refund'] = r['customer_paid_shipping_refund'] or ZERO
         result[d]['   Co-funded Promotion (seller-funded)'] = r['cofunded_promo'] or ZERO
         result[d]['Less: Refunds'] = r['refund_total'] or ZERO
         result[d]['   Chargebacks'] = r['chargeback'] or ZERO
@@ -168,7 +177,9 @@ def compute_daily_pnl(start_date, end_date):
         # GROSS PROFIT
         gp_items = ['NET REVENUE', 'COGS',
                     '   FBT Fulfillment Fee', '   FBT Fulfillment Reimbursement',
-                    '   Seller Shipping', '   TT Shipping Subsidy (net)',
+                    '   TT Shop Shipping Incentive', '   Shipping Fee Subsidy',
+                    '   Customer Shipping Fee Offset',
+                    '   Customer-Paid Shipping Fee', '   Customer-Paid Shipping Refund',
                     '   Cost to Ship to FBT', '   Cost to Ship to Customer',
                     '   Logistics Reimbursement',
                     '   FBT Hub Placement Fee', '   FBT Storage Fee',
@@ -237,8 +248,11 @@ PNL_ROW_LAYOUT = [
     ('Fulfillment', 'sub'),
     ('   FBT Fulfillment Fee', 'row'),
     ('   FBT Fulfillment Reimbursement', 'row'),
-    ('   Seller Shipping', 'row'),
-    ('   TT Shipping Subsidy (net)', 'row'),
+    ('   TT Shop Shipping Incentive', 'row'),
+    ('   Shipping Fee Subsidy', 'row'),
+    ('   Customer Shipping Fee Offset', 'row'),
+    ('   Customer-Paid Shipping Fee', 'row'),
+    ('   Customer-Paid Shipping Refund', 'row'),
     ('   Cost to Ship to FBT', 'row'),
     ('   Cost to Ship to Customer', 'row'),
     ('   Logistics Reimbursement', 'row'),

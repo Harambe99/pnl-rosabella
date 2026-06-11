@@ -215,6 +215,8 @@ def import_settlement(file_obj, filename=''):
     c_tt_inc = col('TikTok Shop shipping incentive')
     c_subsidy = col('Shipping fee subsidy')
     c_offset = col('Customer shipping fee offset')
+    c_cust_paid = col('Customer-paid shipping fee')
+    c_cust_paid_refund = col('Customer-paid shipping fee refund')
     c_fbt_fee = col('FBT fulfillment fee')
     c_fbt_reimb = col('FBT fulfillment fee reimbursement')
     c_ref = col('Referral fee')
@@ -237,10 +239,24 @@ def import_settlement(file_obj, filename=''):
     skipped = 0
     unknown_types = {}
 
+    # Fields the upsert path will refresh on a pre-existing row. Lets old imports
+    # backfill the new shipping-component columns without losing the row's other state.
+    UPSERT_FIELDS = [
+        'tt_shop_shipping_incentive', 'shipping_fee_subsidy',
+        'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
+        'customer_paid_shipping_refund', 'tt_ship_net', 'shipping',
+        'fbt_fee', 'fbt_reimb',
+    ]
+
     def flush_settle(c):
         if not c: return 0
         with transaction.atomic():
-            SettlementRow.objects.bulk_create(c, batch_size=500, ignore_conflicts=True)
+            SettlementRow.objects.bulk_create(
+                c, batch_size=500,
+                update_conflicts=True,
+                unique_fields=['order_id', 'settlement_id', 'row_type'],
+                update_fields=UPSERT_FIELDS,
+            )
         return len(c)
 
     # Iterate DataFrame as tuples (memory-efficient)
@@ -251,8 +267,12 @@ def import_settlement(file_obj, filename=''):
         rt = _clean_str(row[c_type])
         if not oid or not sid or not rt: continue
         key = (oid, sid, rt)
-        if key in existing: skipped += 1; continue
-        existing.add(key)
+        if key in existing:
+            # Row exists — still add to chunk so update_conflicts can backfill
+            # the new shipping-component fields. Count as skipped for the UI.
+            skipped += 1
+        else:
+            existing.add(key)
 
         created = _to_date(row[c_created]) if c_created >= 0 else None
         stmt = _to_date(row[c_stmt]) if c_stmt >= 0 else None
@@ -278,10 +298,15 @@ def import_settlement(file_obj, filename=''):
             sr.fbt_fee = _to_dec(row[c_fbt_fee]) if c_fbt_fee >= 0 else 0
             sr.fbt_reimb = _to_dec(row[c_fbt_reimb]) if c_fbt_reimb >= 0 else 0
             sr.shipping = _to_dec(row[c_shipping]) if c_shipping >= 0 else 0
-            sr.tt_ship_net = (
-                _to_dec(row[c_tt_inc]) if c_tt_inc >= 0 else 0) + (
-                _to_dec(row[c_subsidy]) if c_subsidy >= 0 else 0) + (
-                _to_dec(row[c_offset]) if c_offset >= 0 else 0)
+            tt_inc = _to_dec(row[c_tt_inc]) if c_tt_inc >= 0 else 0
+            ship_sub = _to_dec(row[c_subsidy]) if c_subsidy >= 0 else 0
+            cust_off = _to_dec(row[c_offset]) if c_offset >= 0 else 0
+            sr.tt_shop_shipping_incentive = tt_inc
+            sr.shipping_fee_subsidy = ship_sub
+            sr.customer_shipping_fee_offset = cust_off
+            sr.customer_paid_shipping_fee = _to_dec(row[c_cust_paid]) if c_cust_paid >= 0 else 0
+            sr.customer_paid_shipping_refund = _to_dec(row[c_cust_paid_refund]) if c_cust_paid_refund >= 0 else 0
+            sr.tt_ship_net = tt_inc + ship_sub + cust_off
             sr.cofunded_promo = _to_dec(row[c_cof]) if c_cof >= 0 else 0
             sr.refund_total = (
                 _to_dec(row[c_gross_ref]) if c_gross_ref >= 0 else 0) + (
