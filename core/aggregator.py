@@ -30,18 +30,37 @@ def compute_daily_pnl(start_date, end_date):
     dates = date_range(start_date, end_date)
     result = {d: {} for d in dates}
 
-    # Orders aggregated by created_date (non-canceled)
+    # Orders → Gross Sales + Less: Promos & Discounts (include ALL statuses).
+    # Canceled orders also generate Settlement refund rows; including their gross
+    # and discount here lets the refund line cancel them out cleanly, matching
+    # TikTok's Reports tab view of Net Sales. Excluding canceled (the old behavior)
+    # caused a double-count where the refund hit P&L with no offsetting gross.
     o_qs = Order.objects.filter(
         created_date__gte=start_date, created_date__lte=end_date
-    ).exclude(status__iexact='Canceled').values('created_date').annotate(
+    ).values('created_date').annotate(
         gross=Sum('gross_sale'),
         disc=Sum('seller_discount'),
-        cogs=Sum('cogs'),
     )
     for r in o_qs:
         d = r['created_date']
         result[d]['Gross Sales'] = r['gross'] or ZERO
         result[d]['Less: Promos & Discounts'] = r['disc'] or ZERO
+
+    # COGS → include non-canceled orders, PLUS canceled orders that actually
+    # shipped (real fulfillment cost was incurred). Signal for "shipped" is the
+    # presence of an FBT fulfillment fee row for that order in Settlement.
+    # Pre-ship cancellations have no FBT fee → COGS correctly excluded.
+    shipped_canceled_ids = set(SettlementRow.objects.filter(
+        row_type='Order', fbt_fee__lt=0,
+    ).values_list('order_id', flat=True))
+    cogs_qs = Order.objects.filter(
+        created_date__gte=start_date, created_date__lte=end_date,
+    ).filter(
+        ~Q(status__iexact='Canceled')
+        | Q(status__iexact='Canceled', order_id__in=shipped_canceled_ids)
+    ).values('created_date').annotate(cogs=Sum('cogs'))
+    for r in cogs_qs:
+        d = r['created_date']
         result[d]['COGS'] = -(r['cogs'] or ZERO)
 
     # Settlement aggregated by order_created_date
