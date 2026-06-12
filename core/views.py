@@ -334,10 +334,10 @@ def export_pnl(request):
                     c.font = F_TOTAL; c.fill = FILL_TOTAL
             if v is not None:
                 val_cell = ws.cell(excel_row, 2, float(v))
-                val_cell.number_format = '$#,##0.00;($#,##0.00)'
+                val_cell.number_format = '$#,##0.00;[Red]($#,##0.00)'
                 if nr and float(nr) != 0:
                     pct_cell = ws.cell(excel_row, 3, float(v) / float(nr))
-                    pct_cell.number_format = '0.0%;(0.0%)'
+                    pct_cell.number_format = '0.0%;[Red](0.0%)'
             excel_row += 1
         ws.freeze_panes = 'B2'
         filename = f'pnl_monthly_{yyyy_mm}.xlsx'
@@ -391,19 +391,19 @@ def export_pnl(request):
                 v = daily.get(d, {}).get(label)
                 if v is not None:
                     c1 = ws.cell(excel_row, col, float(v))
-                    c1.number_format = '$#,##0;($#,##0)'
+                    c1.number_format = '$#,##0;[Red]($#,##0)'
                     if nr and float(nr) != 0:
                         c2 = ws.cell(excel_row, col + 1, float(v) / float(nr))
-                        c2.number_format = '0.0%;(0.0%)'
+                        c2.number_format = '0.0%;[Red](0.0%)'
                     month_total += v
                 col += 2
             c1 = ws.cell(excel_row, col, float(month_total))
-            c1.number_format = '$#,##0;($#,##0)'
+            c1.number_format = '$#,##0;[Red]($#,##0)'
             if rtype == 'total':
                 c1.font = F_TOTAL; c1.fill = FILL_TOTAL
             if month_nr and float(month_nr) != 0:
                 c2 = ws.cell(excel_row, col + 1, float(month_total) / float(month_nr))
-                c2.number_format = '0.0%;(0.0%)'
+                c2.number_format = '0.0%;[Red](0.0%)'
                 if rtype == 'total':
                     c2.font = F_TOTAL; c2.fill = FILL_TOTAL
             excel_row += 1
