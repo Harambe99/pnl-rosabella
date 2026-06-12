@@ -233,10 +233,10 @@ def import_settlement(file_obj, filename=''):
         return {'added': 0, 'skipped': 0, 'errors': ['Missing required Settlement columns']}
 
     existing = set(SettlementRow.objects.values_list('order_id', 'settlement_id', 'row_type'))
-    chunk = []
     CHUNK_SIZE = 2000
     added_total = 0
     skipped = 0
+    duplicate_merges = 0
     unknown_types = {}
 
     # Fields the upsert path will refresh on a pre-existing row. Lets old imports
@@ -246,6 +246,21 @@ def import_settlement(file_obj, filename=''):
         'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
         'customer_paid_shipping_refund', 'tt_ship_net', 'shipping',
         'fbt_fee', 'fbt_reimb',
+    ]
+
+    # Numeric fields to sum when the same key appears more than once in the file.
+    # Multi-SKU orders produce one settlement row per SKU sharing the same
+    # (order_id, statement_id, row_type) — they need to be collapsed to one
+    # order-level row by summing every dollar/quantity field.
+    SUM_FIELDS = [
+        'quantity', 'referral_fee', 'affiliate_total', 'campaign_fee',
+        'refund_admin', 'fbt_fee', 'fbt_reimb', 'shipping',
+        'tt_shop_shipping_incentive', 'shipping_fee_subsidy',
+        'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
+        'customer_paid_shipping_refund', 'tt_ship_net',
+        'cofunded_promo', 'refund_total',
+        'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
+        'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
     ]
 
     def flush_settle(c):
@@ -259,7 +274,8 @@ def import_settlement(file_obj, filename=''):
             )
         return len(c)
 
-    # Iterate DataFrame as tuples (memory-efficient)
+    # ---- Pass 1: read every row, deduplicate by (oid, sid, rt) ----
+    sr_by_key = {}
     for row in df.itertuples(index=False, name=None):
         if not row or not row[c_type]: continue
         oid = _clean_str(row[c_oid])
@@ -267,12 +283,6 @@ def import_settlement(file_obj, filename=''):
         rt = _clean_str(row[c_type])
         if not oid or not sid or not rt: continue
         key = (oid, sid, rt)
-        if key in existing:
-            # Row exists — still add to chunk so update_conflicts can backfill
-            # the new shipping-component fields. Count as skipped for the UI.
-            skipped += 1
-        else:
-            existing.add(key)
 
         created = _to_date(row[c_created]) if c_created >= 0 else None
         stmt = _to_date(row[c_stmt]) if c_stmt >= 0 else None
@@ -320,15 +330,37 @@ def import_settlement(file_obj, filename=''):
                 sr.unclassified = adj
                 unknown_types[rt] = unknown_types.get(rt, 0) + 1
 
+        # Merge duplicates: same key already seen → sum numeric fields onto the
+        # existing entry; keep the first non-numeric values.
+        if key in sr_by_key:
+            prior = sr_by_key[key]
+            for f in SUM_FIELDS:
+                cur = getattr(prior, f, None)
+                add = getattr(sr, f, None)
+                if cur is None: cur = 0
+                if add is None: add = 0
+                setattr(prior, f, cur + add)
+            duplicate_merges += 1
+        else:
+            sr_by_key[key] = sr
+
+    # ---- Pass 2: flush deduped rows in chunks ----
+    chunk = []
+    for sr in sr_by_key.values():
+        key = (sr.order_id, sr.settlement_id, sr.row_type)
+        if key in existing:
+            skipped += 1
         chunk.append(sr)
         if len(chunk) >= CHUNK_SIZE:
             added_total += flush_settle(chunk)
             chunk = []
-
     added_total += flush_settle(chunk)
-    note = ''
+    note_parts = []
+    if duplicate_merges:
+        note_parts.append(f'Multi-SKU rows merged: {duplicate_merges:,}')
     if unknown_types:
-        note = 'Unknown types: ' + '; '.join(f'{k}={v}' for k, v in unknown_types.items())
+        note_parts.append('Unknown types: ' + '; '.join(f'{k}={v}' for k, v in unknown_types.items()))
+    note = ' | '.join(note_parts)
     ImportLog.objects.create(importer='settlement', filename=filename,
                              rows_added=added_total, rows_skipped=skipped, notes=note)
     return {'added': added_total, 'skipped': skipped, 'unknown_types': unknown_types}
