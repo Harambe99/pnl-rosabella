@@ -94,7 +94,6 @@ def import_manage_orders(file_obj, filename=''):
     c_qty = col('Quantity')
     c_gross = col('SKU Subtotal Before Discount')
     c_disc = col('SKU Seller Discount')
-    c_refund = col('Order Refund Amount')
     c_created = col('Created Time')
 
     if c_oid < 0 or c_sku < 0 or c_created < 0:
@@ -135,12 +134,13 @@ def import_manage_orders(file_obj, filename=''):
             continue
         existing_status[(oid, sku)] = new_status
 
-        created = _to_date(row[c_created] if c_created < len(row) else None)
+        # Manage Orders export uses MM/DD/YYYY (e.g., "05/31/2026 8:59:36 PM").
+        # Explicit prefer_dd_mm=False so the default is documented + future-proof.
+        created = _to_date(row[c_created] if c_created < len(row) else None, prefer_dd_mm=False)
         if not created: continue
         qty = _to_int(row[c_qty] if c_qty < len(row) else 0)
         gross = _to_dec(row[c_gross] if c_gross >= 0 and c_gross < len(row) else 0)
         disc = -abs(_to_dec(row[c_disc] if c_disc >= 0 and c_disc < len(row) else 0))
-        refund = -abs(_to_dec(row[c_refund] if c_refund >= 0 and c_refund < len(row) else 0))
         cogs_per = cogs_map.get(sku)
         if cogs_per is None:
             unmapped.add(sku); cogs_val = Decimal('0')
@@ -150,7 +150,7 @@ def import_manage_orders(file_obj, filename=''):
         chunk.append(Order(
             order_id=oid, sku_id=sku, created_date=created, quantity=qty,
             status=new_status, gross_sale=gross, seller_discount=disc,
-            order_refund=refund, cogs=cogs_val, source_file=filename,
+            cogs=cogs_val, source_file=filename,
         ))
         if len(chunk) >= CHUNK_SIZE:
             added_total += flush(chunk)
@@ -226,6 +226,8 @@ def import_settlement(file_obj, filename=''):
     c_aff_sa = col('Affiliate Shop Ads commission')
     c_aff_psa = col('Affiliate Partner shop ads commission')
     c_cof = col('Co-funded promotion (seller-funded)')
+    c_cof_camp = col('Co-funded Promotion campaign period fee')
+    c_seller_ship_disc = col('Seller shipping fee discount')
     c_camp = col('Campaign service fee')
     c_adj = col('Adjustment amount')
 
@@ -246,6 +248,7 @@ def import_settlement(file_obj, filename=''):
         'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
         'customer_paid_shipping_refund', 'tt_ship_net', 'shipping',
         'fbt_fee', 'fbt_reimb',
+        'cofunded_promo_campaign_fee', 'seller_shipping_fee_discount',
     ]
 
     # Numeric fields to sum when the same key appears more than once in the file.
@@ -258,7 +261,8 @@ def import_settlement(file_obj, filename=''):
         'tt_shop_shipping_incentive', 'shipping_fee_subsidy',
         'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
         'customer_paid_shipping_refund', 'tt_ship_net',
-        'cofunded_promo', 'refund_total',
+        'cofunded_promo', 'cofunded_promo_campaign_fee',
+        'seller_shipping_fee_discount', 'refund_total',
         'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
         'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
     ]
@@ -318,6 +322,8 @@ def import_settlement(file_obj, filename=''):
             sr.customer_paid_shipping_refund = _to_dec(row[c_cust_paid_refund]) if c_cust_paid_refund >= 0 else 0
             sr.tt_ship_net = tt_inc + ship_sub + cust_off
             sr.cofunded_promo = _to_dec(row[c_cof]) if c_cof >= 0 else 0
+            sr.cofunded_promo_campaign_fee = _to_dec(row[c_cof_camp]) if c_cof_camp >= 0 else 0
+            sr.seller_shipping_fee_discount = _to_dec(row[c_seller_ship_disc]) if c_seller_ship_disc >= 0 else 0
             sr.refund_total = (
                 _to_dec(row[c_gross_ref]) if c_gross_ref >= 0 else 0) + (
                 _to_dec(row[c_disc_ref]) if c_disc_ref >= 0 else 0)
@@ -355,15 +361,88 @@ def import_settlement(file_obj, filename=''):
             added_total += flush_settle(chunk)
             chunk = []
     added_total += flush_settle(chunk)
+
+    # Reports tab drift detector — compare per-order sums to the Reports tab
+    # parent values from THIS file. Catches: (a) TikTok adding/renaming columns
+    # we don't read, (b) importer bugs that drop columns silently.
+    drift_msgs = _verify_reports_tab_drift(file_obj, df, c_type)
+
     note_parts = []
     if duplicate_merges:
         note_parts.append(f'Multi-SKU rows merged: {duplicate_merges:,}')
     if unknown_types:
         note_parts.append('Unknown types: ' + '; '.join(f'{k}={v}' for k, v in unknown_types.items()))
+    if drift_msgs:
+        note_parts.append('Drift vs Reports tab: ' + '; '.join(drift_msgs))
     note = ' | '.join(note_parts)
     ImportLog.objects.create(importer='settlement', filename=filename,
                              rows_added=added_total, rows_skipped=skipped, notes=note)
-    return {'added': added_total, 'skipped': skipped, 'unknown_types': unknown_types}
+    return {'added': added_total, 'skipped': skipped, 'unknown_types': unknown_types,
+            'drift': drift_msgs}
+
+
+def _verify_reports_tab_drift(file_obj, df, c_type):
+    """Read the Reports tab from a settlement file, compare its parent values to
+    per-order sums from the Order details sheet. Returns a list of drift messages
+    (empty if everything matches within $1)."""
+    import pandas as pd
+    # Per-order sums from the df we already loaded (Order rows only)
+    od = df[df[df.columns[c_type]].astype(str).str.strip() == 'Order'] if c_type >= 0 else df
+    cols_lower = {c.lower().strip(): c for c in df.columns}
+    def col_by_name(name):
+        return cols_lower.get(name.lower())
+    def sum_col(name):
+        c = col_by_name(name)
+        if c is None: return None
+        return float(pd.to_numeric(od[c], errors='coerce').fillna(0).sum())
+
+    # Read Reports tab
+    try:
+        file_obj.seek(0)
+    except Exception:
+        return ['Could not re-read file for drift check']
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(file_obj, data_only=True, read_only=True)
+    except Exception as e:
+        return [f'Could not open file for Reports tab: {e}']
+    if 'Reports' not in wb.sheetnames:
+        return ['Reports tab not found in file']
+    ws = wb['Reports']
+    reports = {}
+    for row in ws.iter_rows(values_only=True):
+        if not row: continue
+        cells = [c for c in row if c is not None and str(c).strip() != '']
+        if len(cells) >= 2:
+            label = str(cells[-2]).strip()
+            try:
+                reports[label] = float(cells[-1])
+            except (TypeError, ValueError):
+                pass
+
+    # Compare the parent columns we should match
+    checks = [
+        'Gross sales', 'Gross sales refund', 'Seller discount', 'Seller discount refund',
+        'Shipping', 'TikTok Shop shipping incentive', 'Shipping fee subsidy',
+        'Customer shipping fee offset', 'Customer-paid shipping fee',
+        'Customer-paid shipping fee refund', 'FBT fulfillment fee',
+        'FBT fulfillment fee reimbursement', 'Referral fee',
+        'Refund administration fee', 'Affiliate Commission',
+        'Affiliate partner commission', 'Affiliate Shop Ads commission',
+        'Affiliate Partner shop ads commission',
+        'Co-funded promotion (seller-funded)',
+        'Co-funded Promotion campaign period fee',
+        'Campaign service fee', 'Seller shipping fee discount',
+    ]
+    drifts = []
+    for label in checks:
+        rv = reports.get(label)
+        ours = sum_col(label)
+        if rv is None or ours is None:
+            continue
+        if abs(ours - rv) > 1.0:
+            drifts.append(f'{label}: ours=${ours:,.2f} vs Reports=${rv:,.2f} (Δ ${ours - rv:+,.2f})')
+    return drifts
 
 
 # ===========================================================================

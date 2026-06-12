@@ -80,6 +80,8 @@ def compute_daily_pnl(start_date, end_date):
         customer_paid_shipping_fee=Sum('customer_paid_shipping_fee'),
         customer_paid_shipping_refund=Sum('customer_paid_shipping_refund'),
         cofunded_promo=Sum('cofunded_promo'),
+        cofunded_promo_campaign_fee=Sum('cofunded_promo_campaign_fee'),
+        seller_shipping_fee_discount=Sum('seller_shipping_fee_discount'),
         refund_total=Sum('refund_total'),
         chargeback=Sum('chargeback'),
         violation=Sum('violation'),
@@ -110,7 +112,10 @@ def compute_daily_pnl(start_date, end_date):
         result[d]['   Customer Shipping Fee Offset'] = r['customer_shipping_fee_offset'] or ZERO
         result[d]['   Customer-Paid Shipping Fee'] = r['customer_paid_shipping_fee'] or ZERO
         result[d]['   Customer-Paid Shipping Refund'] = r['customer_paid_shipping_refund'] or ZERO
+        result[d]['   Seller Shipping Fee Discount'] = r['seller_shipping_fee_discount'] or ZERO
         result[d]['   Co-funded Promotion (seller-funded)'] = r['cofunded_promo'] or ZERO
+        result[d]['   Co-funded Promotion Campaign Period Fee'] = r['cofunded_promo_campaign_fee'] or ZERO
+        result[d]['   FBT Warehouse Service Fee'] = r['fbt_warehouse'] or ZERO
         result[d]['Less: Refunds'] = r['refund_total'] or ZERO
         result[d]['   Chargebacks'] = r['chargeback'] or ZERO
         result[d]['   Violation Fee'] = r['violation'] or ZERO
@@ -212,6 +217,7 @@ def compute_daily_pnl(start_date, end_date):
                     '   TT Shop Shipping Incentive', '   Shipping Fee Subsidy',
                     '   Customer Shipping Fee Offset',
                     '   Customer-Paid Shipping Fee', '   Customer-Paid Shipping Refund',
+                    '   Seller Shipping Fee Discount',
                     '   Cost to Ship to FBT', '   Cost to Ship to Customer',
                     '   Logistics Reimbursement',
                     '   FBT Hub Placement Fee', '   FBT Storage Fee',
@@ -220,10 +226,11 @@ def compute_daily_pnl(start_date, end_date):
                     '   FBT Outbound No-Show', '   FBT Delayed Response Fee',
                     '   FBT Disposal Fee', '   FBT Return Shipping (VAS)',
                     '   FBT Return to Seller Handling', '   FBT Inbound Return Operation',
-                    '   FBT Warehouse Compensation',
+                    '   FBT Warehouse Compensation', '   FBT Warehouse Service Fee',
                     '   Referral Fee', '   Refund Admin Fee', '   Campaign Service Fee',
                     '   Violation Fee', '   TikTok Shop Reimb', '   Rebate',
-                    '   Co-funded Promotion (seller-funded)']
+                    '   Co-funded Promotion (seller-funded)',
+                    '   Co-funded Promotion Campaign Period Fee']
         row['GROSS PROFIT'] = sum((row.get(x, ZERO) for x in gp_items), ZERO)
 
         # Ad spend: raw cost minus TBSM Savings (FIFO engine) minus TT Promo Credits.
@@ -285,6 +292,7 @@ PNL_ROW_LAYOUT = [
     ('   Customer Shipping Fee Offset', 'row'),
     ('   Customer-Paid Shipping Fee', 'row'),
     ('   Customer-Paid Shipping Refund', 'row'),
+    ('   Seller Shipping Fee Discount', 'row'),
     ('   Cost to Ship to FBT', 'row'),
     ('   Cost to Ship to Customer', 'row'),
     ('   Logistics Reimbursement', 'row'),
@@ -301,6 +309,7 @@ PNL_ROW_LAYOUT = [
     ('   FBT Return to Seller Handling', 'row'),
     ('   FBT Inbound Return Operation', 'row'),
     ('   FBT Warehouse Compensation', 'row'),
+    ('   FBT Warehouse Service Fee', 'row'),
     ('Platform Fees', 'sub'),
     ('   Referral Fee', 'row'),
     ('   Refund Admin Fee', 'row'),
@@ -309,6 +318,7 @@ PNL_ROW_LAYOUT = [
     ('   TikTok Shop Reimb', 'row'),
     ('   Rebate', 'row'),
     ('   Co-funded Promotion (seller-funded)', 'row'),
+    ('   Co-funded Promotion Campaign Period Fee', 'row'),
     ('GROSS PROFIT', 'total'),
     ('', 'blank'),
     ('MARKETING', 'section'),

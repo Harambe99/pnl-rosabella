@@ -34,7 +34,6 @@ class Order(models.Model):
     status = models.CharField(max_length=32, blank=True)
     gross_sale = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     seller_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    order_refund = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     cogs = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     source_file = models.CharField(max_length=255, blank=True)
     imported_at = models.DateTimeField(auto_now_add=True)
@@ -67,6 +66,8 @@ class SettlementRow(models.Model):
     customer_paid_shipping_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     customer_paid_shipping_refund = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     cofunded_promo = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cofunded_promo_campaign_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    seller_shipping_fee_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     refund_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     chargeback = models.DecimalField(max_digits=12, decimal_places=2, default=0)
