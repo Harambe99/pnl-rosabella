@@ -125,9 +125,12 @@ def compute_daily_pnl(start_date, end_date):
         result[d]['   Rebate'] = r['rebate'] or ZERO
         result[d]['   Unclassified Adjustments'] = r['unclassified'] or ZERO
 
-    # Analytics GMV (overrides derived)
+    # TikTok Shop Analytics GMV — kept as a REFERENCE line only.
+    # Method A (computed Gross - Discount from Manage Orders) is now the
+    # authoritative GMV for accrual consistency with the rest of the P&L.
+    # This line is informational so you can compare to TikTok's headline number.
     for a in AnalyticsDay.objects.filter(date__gte=start_date, date__lte=end_date):
-        result[a.date]['GMV'] = a.gmv
+        result[a.date]['GMV (TikTok Analytics — reference)'] = a.gmv
 
     # Ad spend (raw cost; sign-flip happens in totals)
     for a in AdSpendDay.objects.filter(date__gte=start_date, date__lte=end_date):
@@ -205,10 +208,11 @@ def compute_daily_pnl(start_date, end_date):
         gross = row.get('Gross Sales', ZERO)
         promos = row.get('Less: Promos & Discounts', ZERO)
         refunds = row.get('Less: Refunds', ZERO)
-        # GMV = Gross + Promos (post-discount, pre-refund). Matches TikTok portal definition.
-        # Net Revenue = GMV + Refunds (refunds are stored negative).
-        if 'GMV' not in row:
-            row['GMV'] = gross + promos
+        # GMV is always computed = Gross + Promos (post-discount, pre-refund).
+        # Method A: accrual-consistent with the rest of the P&L. The TikTok
+        # Analytics GMV is shown alongside as a reference line but does not
+        # drive the math.
+        row['GMV'] = gross + promos
         row['NET REVENUE'] = row['GMV'] + refunds
 
         # GROSS PROFIT
@@ -279,6 +283,7 @@ PNL_ROW_LAYOUT = [
     ('Gross Sales', 'row'),
     ('Less: Promos & Discounts', 'row'),
     ('GMV', 'row'),
+    ('GMV (TikTok Analytics — reference)', 'row'),
     ('Less: Refunds', 'row'),
     ('NET REVENUE', 'total'),
     ('', 'blank'),
