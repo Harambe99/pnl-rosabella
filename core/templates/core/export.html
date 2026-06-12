@@ -1,20 +1,24 @@
 {% extends "core/base.html" %}
-{% block title %}Export P&L · CSV{% endblock %}
+{% block title %}Export P&L · XLSX{% endblock %}
 {% block content %}
-<h2 class="mb-3">Export P&amp;L as CSV</h2>
-<p class="text-muted">Pick a month and a level of detail. Downloads a CSV you can open in Excel, Sheets, or Numbers.</p>
+<h2 class="mb-3">Export P&amp;L as Excel</h2>
+<p class="text-muted">
+  Pick a month and a level of detail. The download is an <strong>.xlsx</strong> with
+  two sheets — the P&amp;L numbers, plus a <em>Line Item Guide</em> sheet that explains
+  every row. Click any line-item label in the P&amp;L sheet to jump to its explanation.
+</p>
 
 <div class="row g-4 mt-2" style="max-width: 900px;">
 
   <div class="col-md-6">
     <div class="card p-3 h-100">
       <h5>Monthly-level P&amp;L</h5>
-      <p class="text-muted small mb-3">One column with the month's totals, plus a % of Net Revenue column for each row. Use this for month-on-month comparisons or to paste into a deck.</p>
+      <p class="text-muted small mb-3">One column with the month's totals plus a % of Net Revenue column for each row. Use this for month-on-month comparisons or to paste into a deck.</p>
       <form method="get" action="{% url 'export_pnl' %}">
         <input type="hidden" name="mode" value="monthly">
         <label class="form-label small">Month</label>
         <input type="month" name="month" value="{{ current_month }}" class="form-control mb-3" required>
-        <button class="btn btn-primary" type="submit">Download monthly CSV</button>
+        <button class="btn btn-primary" type="submit">Download monthly XLSX</button>
       </form>
     </div>
   </div>
@@ -22,12 +26,12 @@
   <div class="col-md-6">
     <div class="card p-3 h-100">
       <h5>Daily-level P&amp;L</h5>
-      <p class="text-muted small mb-3">One column per day of the chosen month, plus a month-total column. Includes $ and % NR for every cell. Use this for granular review or to dig into specific-day performance.</p>
+      <p class="text-muted small mb-3">One column per day of the chosen month plus a month-total column. Includes $ and % NR for every cell. Use this for granular review or specific-day performance.</p>
       <form method="get" action="{% url 'export_pnl' %}">
         <input type="hidden" name="mode" value="daily">
         <label class="form-label small">Month</label>
         <input type="month" name="month" value="{{ current_month }}" class="form-control mb-3" required>
-        <button class="btn btn-primary" type="submit">Download daily CSV</button>
+        <button class="btn btn-primary" type="submit">Download daily XLSX</button>
       </form>
     </div>
   </div>
@@ -35,6 +39,6 @@
 </div>
 
 <p class="text-muted small mt-4">
-  Notes: empty cells in the CSV correspond to section headers and sub-rows that don't carry a value (e.g., "REVENUE", "Fulfillment"). The dollar values are unrounded — Excel will display them however you format the column. % NR is rounded to 1 decimal.
+  Notes: blank rows are section dividers ("REVENUE", "Fulfillment", etc.) that don't carry a value. Dollar values display with TikTok's accounting sign convention (negatives in parentheses). Both Daily and Monthly exports include the Line Item Guide sheet — your boss can click any row label to see what that line item means without needing access to the app.
 </p>
 {% endblock %}

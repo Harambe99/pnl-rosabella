@@ -221,33 +221,81 @@ def readme(request):
 
 
 def export_pnl(request):
-    """GET: show the export page. With ?mode= & ?month= query: stream CSV."""
-    import csv, io
+    """GET: show the export page. With ?mode= & ?month= query: stream XLSX.
+    Monthly export has 2 sheets — the P&L + a 'Line Item Guide' with explanations.
+    Line item labels in the P&L sheet are hyperlinks that jump to the guide row."""
+    import io
     mode = request.GET.get('mode')
     yyyy_mm = request.GET.get('month', '')
 
     if not mode:
-        # Render the form page
         return render(request, 'core/export.html', {
             'current_month': date.today().strftime('%Y-%m'),
         })
 
-    # Validate inputs
     try:
         y, m = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
         if y < 2020 or y > 2099 or m < 1 or m > 12:
             return HttpResponse('Invalid month', status=400)
     except Exception:
         return HttpResponse('Invalid month', status=400)
-
     if mode not in ('monthly', 'daily'):
         return HttpResponse('mode must be monthly or daily', status=400)
 
-    buf = io.StringIO()
-    w = csv.writer(buf)
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from .line_item_docs import LINE_ITEM_DOCS
 
+    wb = openpyxl.Workbook()
+    ws = wb.active
+
+    # Style presets
+    F_HEAD = Font(bold=True, color='FFFFFF', size=11)
+    F_SECTION = Font(bold=True, color='FFFFFF', size=11)
+    F_SUB = Font(bold=True, size=10)
+    F_TOTAL = Font(bold=True, size=11)
+    F_LINK = Font(color='0563C1', underline='single', size=10)
+    FILL_HEAD = PatternFill('solid', fgColor='2D3748')
+    FILL_SECTION = PatternFill('solid', fgColor='4A5568')
+    FILL_SUB = PatternFill('solid', fgColor='E2E8F0')
+    FILL_TOTAL = PatternFill('solid', fgColor='EDF2F7')
+    THIN = Side(style='thin', color='CBD5E0')
+    BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+
+    # ---- Build Sheet 2 first ('Line Item Guide') so we know each row number ----
+    ws_doc = wb.create_sheet('Line Item Guide')
+    ws_doc['A1'] = 'Line Item'
+    ws_doc['B1'] = 'What it is'
+    ws_doc['C1'] = 'Source'
+    ws_doc['D1'] = 'Formula'
+    ws_doc['E1'] = 'Notes'
+    for col, w_ in zip('ABCDE', [38, 60, 50, 60, 70]):
+        ws_doc.column_dimensions[col].width = w_
+    for c in ws_doc[1]:
+        c.font = F_HEAD; c.fill = FILL_HEAD; c.alignment = Alignment(vertical='top')
+    doc_row_for_label = {}
+    doc_r = 2
+    for label, doc in LINE_ITEM_DOCS.items():
+        ws_doc.cell(doc_r, 1, label).font = F_TOTAL
+        ws_doc.cell(doc_r, 2, doc.get('what', '')).alignment = Alignment(wrap_text=True, vertical='top')
+        ws_doc.cell(doc_r, 3, doc.get('source', '')).alignment = Alignment(wrap_text=True, vertical='top')
+        ws_doc.cell(doc_r, 4, doc.get('formula', '')).alignment = Alignment(wrap_text=True, vertical='top')
+        ws_doc.cell(doc_r, 5, doc.get('notes', '')).alignment = Alignment(wrap_text=True, vertical='top')
+        ws_doc.row_dimensions[doc_r].height = 48
+        for c in ws_doc[doc_r]: c.border = BORDER
+        doc_row_for_label[label.strip()] = doc_r
+        doc_r += 1
+
+    def link_label_cell(cell, label):
+        """If the label has a doc entry, make it a hyperlink to that doc row."""
+        target_row = doc_row_for_label.get(label.strip())
+        if target_row:
+            cell.hyperlink = f"#'Line Item Guide'!A{target_row}"
+            cell.font = F_LINK
+
+    # ---- Sheet 1 — the P&L ----
     if mode == 'monthly':
-        # One column: the chosen month's totals
+        ws.title = f'Monthly P&L {yyyy_mm}'
         start = date(y, m, 1)
         end = date(y, m, monthrange(y, m)[1])
         daily = compute_daily_pnl(start, end)
@@ -257,24 +305,45 @@ def export_pnl(request):
                 monthly[label] = monthly.get(label, Decimal('0')) + (val or Decimal('0'))
         nr = monthly.get('NET REVENUE') or Decimal('0')
 
-        w.writerow(['Line Item', f'{yyyy_mm} ($)', f'{yyyy_mm} (% Net Rev)'])
+        # Header
+        ws.append(['Line Item', f'{yyyy_mm} ($)', f'{yyyy_mm} (% Net Rev)'])
+        for c in ws[1]:
+            c.font = F_HEAD; c.fill = FILL_HEAD; c.alignment = Alignment(horizontal='center')
+        ws.column_dimensions['A'].width = 42
+        ws.column_dimensions['B'].width = 18
+        ws.column_dimensions['C'].width = 16
+
+        excel_row = 2
         for label, rtype in PNL_ROW_LAYOUT:
             if rtype == 'blank':
-                w.writerow(['', '', ''])
-                continue
+                ws.row_dimensions[excel_row].height = 8
+                excel_row += 1; continue
             if rtype in ('section', 'sub'):
-                w.writerow([label, '', ''])
-                continue
+                cell = ws.cell(excel_row, 1, label)
+                if rtype == 'section':
+                    cell.font = F_SECTION; cell.fill = FILL_SECTION
+                else:
+                    cell.font = F_SUB; cell.fill = FILL_SUB
+                excel_row += 1; continue
             v = monthly.get(label)
-            dollar = f'{float(v):.2f}' if v is not None else ''
-            pct = ''
-            if v is not None and nr and float(nr) != 0:
-                pct = f'{float(v) / float(nr) * 100:.1f}%'
-            w.writerow([label, dollar, pct])
-
-        filename = f'pnl_monthly_{yyyy_mm}.csv'
+            label_cell = ws.cell(excel_row, 1, label)
+            link_label_cell(label_cell, label)
+            if rtype == 'total':
+                label_cell.font = F_TOTAL
+                for c in [ws.cell(excel_row, 2), ws.cell(excel_row, 3)]:
+                    c.font = F_TOTAL; c.fill = FILL_TOTAL
+            if v is not None:
+                val_cell = ws.cell(excel_row, 2, float(v))
+                val_cell.number_format = '$#,##0.00;($#,##0.00)'
+                if nr and float(nr) != 0:
+                    pct_cell = ws.cell(excel_row, 3, float(v) / float(nr))
+                    pct_cell.number_format = '0.0%;(0.0%)'
+            excel_row += 1
+        ws.freeze_panes = 'B2'
+        filename = f'pnl_monthly_{yyyy_mm}.xlsx'
 
     else:  # daily
+        ws.title = f'Daily P&L {yyyy_mm}'
         start = date(y, m, 1)
         end = date(y, m, monthrange(y, m)[1])
         daily = compute_daily_pnl(start, end)
@@ -282,44 +351,73 @@ def export_pnl(request):
         nr_per_date = [daily.get(d, {}).get('NET REVENUE') for d in dates]
         month_nr = sum((v or Decimal('0')) for v in nr_per_date)
 
-        # Two-row header: dates + sub-header
-        header1 = ['Line Item']
+        # Two-row header: dates + $/% sub-header
+        hdr1 = ['Line Item']
         for d in dates:
-            header1.extend([d.strftime('%d %b'), ''])
-        header1.extend([f'Total {yyyy_mm}', ''])
-        w.writerow(header1)
-        header2 = ['']
-        for _ in dates:
-            header2.extend(['$', '% NR'])
-        header2.extend(['$', '% NR'])
-        w.writerow(header2)
+            hdr1.extend([d.strftime('%d %b'), ''])
+        hdr1.extend([f'Total {yyyy_mm}', ''])
+        ws.append(hdr1)
+        hdr2 = ['']
+        for _ in dates: hdr2.extend(['$', '% NR'])
+        hdr2.extend(['$', '% NR'])
+        ws.append(hdr2)
+        for c in ws[1]:
+            c.font = F_HEAD; c.fill = FILL_HEAD; c.alignment = Alignment(horizontal='center')
+        for c in ws[2]:
+            c.font = F_HEAD; c.fill = FILL_HEAD; c.alignment = Alignment(horizontal='center')
+        ws.column_dimensions['A'].width = 42
+        for i in range(2, len(hdr1) + 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 11
 
+        excel_row = 3
         for label, rtype in PNL_ROW_LAYOUT:
             if rtype == 'blank':
-                w.writerow([''] + ['', ''] * (len(dates) + 1))
-                continue
+                ws.row_dimensions[excel_row].height = 8
+                excel_row += 1; continue
             if rtype in ('section', 'sub'):
-                w.writerow([label] + ['', ''] * (len(dates) + 1))
-                continue
-            row_cells = [label]
+                cell = ws.cell(excel_row, 1, label)
+                if rtype == 'section':
+                    cell.font = F_SECTION; cell.fill = FILL_SECTION
+                else:
+                    cell.font = F_SUB; cell.fill = FILL_SUB
+                excel_row += 1; continue
+            label_cell = ws.cell(excel_row, 1, label)
+            link_label_cell(label_cell, label)
+            if rtype == 'total':
+                label_cell.font = F_TOTAL
+            col = 2
             month_total = Decimal('0')
             for d, nr in zip(dates, nr_per_date):
                 v = daily.get(d, {}).get(label)
-                dollar = f'{float(v):.2f}' if v is not None else ''
-                pct = ''
-                if v is not None and nr and float(nr) != 0:
-                    pct = f'{float(v) / float(nr) * 100:.1f}%'
-                row_cells.extend([dollar, pct])
-                if v is not None: month_total += v
-            # Month total column
-            mt_dollar = f'{float(month_total):.2f}'
-            mt_pct = f'{float(month_total) / float(month_nr) * 100:.1f}%' if month_nr else ''
-            row_cells.extend([mt_dollar, mt_pct])
-            w.writerow(row_cells)
+                if v is not None:
+                    c1 = ws.cell(excel_row, col, float(v))
+                    c1.number_format = '$#,##0;($#,##0)'
+                    if nr and float(nr) != 0:
+                        c2 = ws.cell(excel_row, col + 1, float(v) / float(nr))
+                        c2.number_format = '0.0%;(0.0%)'
+                    month_total += v
+                col += 2
+            c1 = ws.cell(excel_row, col, float(month_total))
+            c1.number_format = '$#,##0;($#,##0)'
+            if rtype == 'total':
+                c1.font = F_TOTAL; c1.fill = FILL_TOTAL
+            if month_nr and float(month_nr) != 0:
+                c2 = ws.cell(excel_row, col + 1, float(month_total) / float(month_nr))
+                c2.number_format = '0.0%;(0.0%)'
+                if rtype == 'total':
+                    c2.font = F_TOTAL; c2.fill = FILL_TOTAL
+            excel_row += 1
+        ws.freeze_panes = 'B3'
+        filename = f'pnl_daily_{yyyy_mm}.xlsx'
 
-        filename = f'pnl_daily_{yyyy_mm}.csv'
-
-    resp = HttpResponse(buf.getvalue(), content_type='text/csv')
+    # Stream out
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    resp = HttpResponse(
+        buf.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
     resp['Content-Disposition'] = f'attachment; filename="{filename}"'
     return resp
 

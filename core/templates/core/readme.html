@@ -112,16 +112,18 @@
   <tbody>
     <tr><td>Monthly P&amp;L</td><td><code>/</code></td><td>Year view: 12 columns × all P&amp;L rows + YTD column.</td></tr>
     <tr><td>Daily P&amp;L</td><td><code>/daily/</code></td><td>One month at a time, day-by-day columns.</td></tr>
-    <tr><td>Upload</td><td><code>/upload/</code></td><td>Six upload cards — one per file type. Append-only with dedup.</td></tr>
+    <tr><td>Upload</td><td><code>/upload/</code></td><td>Seven upload cards — one per file type. Append-only with dedup.</td></tr>
     <tr><td>Monthly Inputs</td><td><code>/monthly-inputs/</code></td><td>Manual monthly values: team spend, software, FBT billing line items, etc.</td></tr>
+    <tr><td>Ad Discounts</td><td><code>/ad-discounts/</code></td><td>FIFO ad-account reconciliation engine: which days were funded by discounted balance vs full-price. Powers <em>Less: TBSM Savings</em> and <em>Less: TT Promo Credits</em> when enabled.</td></tr>
     <tr><td>COGS</td><td><code>/cogs/</code></td><td>SKU → per-order cost table. Edited inline. Used to compute COGS column.</td></tr>
-    <tr><td>History</td><td><code>/history/</code></td><td>Audit trail of every file ever uploaded (with row counts + notes).</td></tr>
+    <tr><td>History</td><td><code>/history/</code></td><td>Audit trail of every file ever uploaded (with row counts + notes + Reports-tab drift alerts).</td></tr>
+    <tr><td>Export</td><td><code>/export/</code></td><td>Download Monthly or Daily P&amp;L as XLSX (2 sheets — numbers + Line Item Guide explanations).</td></tr>
     <tr><td>README</td><td><code>/readme/</code></td><td>This page.</td></tr>
   </tbody>
 </table>
 
-<h2 id="imports">4. The 6 file imports</h2>
-<p>Re-uploading the same file is always safe — duplicates get skipped. Every upload logs to the History page.</p>
+<h2 id="imports">4. The 7 file imports</h2>
+<p>Re-uploading the same file is always safe — duplicates get skipped (Settlement merges multi-SKU rows by summing). Every upload logs to the History page. On Settlement uploads, the Reports tab parents are cross-checked against per-order sums; any drift &gt;$1 lands in the History note as a "Drift vs Reports tab" alert.</p>
 
 <h4>Filename quick-reference</h4>
 <p>So you can tell at a glance which file is which when they pile up in your Downloads folder. The date in each filename is the time of export, not the data's date range.</p>
@@ -285,13 +287,39 @@
   </tbody>
 </table>
 
-<h2 id="cogs">6. COGS — SKU cost lookup</h2>
+<h2 id="ad-discounts">6. Ad Discounts ledger — FIFO ad-account reconciliation</h2>
+<p>A separate page (<code>/ad-discounts/</code>) reconstructs the daily TikTok ad-account balance from your Transaction export and answers: <em>was today's spend funded by discounted credit, and at what rate, or was it card-billed at full price?</em></p>
+
+<h4>How it works</h4>
+<ol>
+  <li><strong>Credit layers</strong> — every "Increase balance" row in the Transaction export's <em>Others</em> sheet becomes a credit layer at the default TBSM rate (6%). Promotions-sheet rows default to free (100% discount) unless you tag a date as agency-purchased at a specific rate.</li>
+  <li><strong>FIFO drawdown</strong> — daily ad spend draws against the oldest credit layer first. When the queue empties, the rest of the day's spend is full-price card-billed.</li>
+  <li><strong>Verification</strong> — modeled full-price spend should approximately equal actual card "Bill payment" totals per month. Significant drift = something needs to be tagged.</li>
+</ol>
+
+<h4>Setup (one-time)</h4>
+<ul>
+  <li>Upload the widest-range <strong>Transaction export</strong> from Ads Manager (covers TBSM loads, promos, card charges)</li>
+  <li>Upload the widest-range <strong>Campaign overview</strong> (Ad Spend) so spend history matches transaction history</li>
+  <li>Set the <strong>Opening balance</strong> — for our shop, $0 on 2025-06-11 (one day before the first TBSM load). This is provable: card charges between 2025-06-05 and 2025-06-17 mean the balance was $0 in that window.</li>
+  <li>Add <strong>Agency Promo Tags</strong> for any non-default rate (e.g. KDMT 10% on May 8/10/29 2026)</li>
+  <li>Tick <strong>"Feed P&amp;L"</strong> to let the engine populate the <em>Less: TBSM Savings</em> and <em>Less: TT Promo Credits</em> lines on Daily/Monthly P&amp;L. Defaults off until verified.</li>
+</ul>
+
+<h4>Ongoing maintenance</h4>
+<ul>
+  <li>Re-upload Transaction + Campaign overview periodically (engine auto-recomputes on each upload)</li>
+  <li>When a new agency-purchased promo deal happens at a non-default rate, add an Agency Promo Tag</li>
+  <li>Agency Invoices section is informational only — engine doesn't read invoices</li>
+</ul>
+
+<h2 id="cogs">7. COGS — SKU cost lookup</h2>
 <p>The <strong>COGS</strong> page is a table of <code>SKU ID → cost-per-order</code>. When Manage Orders is imported, each line's COGS is computed as <code>quantity × COGSItem.cogs_per_order</code> and stored on the Order row.</p>
 <p><strong>Initial seed:</strong> the management command <code>seed_cogs</code> runs on every deploy (in <code>build.sh</code>) — it creates COGS rows for known SKUs with default costs. It does NOT overwrite costs you've edited on the page.</p>
 <p><strong>To update a cost:</strong> edit the value inline on the COGS page and click Save. New imports will use the new value; <em>old imported orders keep the COGS they were imported with</em>. To recompute old orders with the new costs, wipe Orders and re-import (see Admin section).</p>
 <p><strong>Adding a new SKU:</strong> add a row to <code>core/management/commands/seed_cogs.py</code> and push — Render runs <code>seed_cogs</code> on every deploy. Or insert directly via Django shell.</p>
 
-<h2 id="line-items">7. P&amp;L line items — what powers each one</h2>
+<h2 id="line-items">8. P&amp;L line items — what powers each one</h2>
 <p>Each line below tells you four things: where the number comes from, the exact formula, why that formula (not something else), and what to watch out for.</p>
 
 <h3>REVENUE</h3>
@@ -313,11 +341,18 @@
 </div>
 
 <div class="line-item">
-  <div class="li-name">GMV <span class="badge-src badge-analytics">Shop Analytics</span> <span class="badge-src badge-calc">CALC fallback</span></div>
-  <div class="li-from"><b>From:</b> Shop Analytics XLSX column B (per-day GMV) IF uploaded. Otherwise computed.</div>
-  <div class="li-formula"><b>Formula:</b><br>Override path: <code>GMV = AnalyticsDay.gmv</code><br>Fallback path: <code>GMV = Gross Sales + Less: Promos &amp; Discounts</code></div>
-  <div class="li-why"><b>Why two paths:</b> TikTok's portal shows an authoritative GMV. We can compute it ourselves but the numbers occasionally differ by a few dollars (rounding, sub-day timing). Bookkeepers and stakeholders compare against the portal — so when Shop Analytics is uploaded, that value wins.</div>
-  <div class="li-watch"><b>Watch:</b> if you upload Shop Analytics for some months but not others, you'll have a mix of "portal GMV" and "calculated GMV" — the difference is usually tiny but not zero.</div>
+  <div class="li-name">GMV <span class="badge-src badge-calc">CALC</span></div>
+  <div class="li-from"><b>From:</b> computed from Manage Orders (Method A).</div>
+  <div class="li-formula"><b>Formula:</b> <code>GMV = Gross Sales + Less: Promos &amp; Discounts</code></div>
+  <div class="li-why"><b>Why computed not overridden:</b> the rest of the P&amp;L is accrual-based (orders attributed by Created Time). Using <code>Gross − Discount</code> keeps the displayed math self-consistent (the components add up to GMV). TikTok's Shop Analytics GMV is shown as a separate reference line for comparison but does NOT drive Net Revenue.</div>
+</div>
+
+<div class="line-item">
+  <div class="li-name">GMV (TikTok Analytics — reference) <span class="badge-src badge-analytics">Shop Analytics</span></div>
+  <div class="li-from"><b>From:</b> Shop Analytics XLSX, GMV column. Published by TikTok.</div>
+  <div class="li-formula"><b>Formula:</b> TikTok's value as-is, not computed.</div>
+  <div class="li-why"><b>Reference only — does NOT feed Net Revenue.</b> TikTok applies internal calculation rules (excludes certain order types, fraud filtering) so this number typically differs slightly from our computed GMV. Useful for "what does my dashboard show?" comparisons.</div>
+  <div class="li-watch"><b>Watch:</b> if Shop Analytics isn't uploaded for a month, this line shows blank for that month. The Net Revenue still computes correctly via Method A.</div>
 </div>
 
 <div class="line-item">
@@ -598,7 +633,7 @@
   <div class="li-why"><b>What this is:</b> the bottom-line number — what's left after every direct cost, every marketing dollar, and every overhead expense. Negative for now; goal is positive.</div>
 </div>
 
-<h2 id="calc">8. How the numbers roll up</h2>
+<h2 id="calc">9. How the numbers roll up</h2>
 <ol>
   <li><strong>Daily P&amp;L</strong> (<code>compute_daily_pnl</code> in <code>aggregator.py</code>) for a date range:
     <ol type="a">
@@ -615,7 +650,7 @@
   <li><strong>Render</strong>: views.py builds row-by-row data using <code>PNL_ROW_LAYOUT</code> (the canonical row order + types: section / sub / row / total / blank), passes to templates.</li>
 </ol>
 
-<h2 id="deploy">9. Deploying code changes</h2>
+<h2 id="deploy">10. Deploying code changes</h2>
 <ol>
   <li>Clone the repo: <code>git clone https://github.com/Harambe99/pnl-rosabella.git</code></li>
   <li>Make changes locally.</li>
@@ -630,7 +665,7 @@
 </ol>
 <p><strong>Local dev:</strong> <code>pip install -r requirements.txt</code>, set <code>APP_PASSWORD</code> and <code>DATABASE_URL</code> env vars (use a local Postgres or SQLite), <code>python manage.py migrate</code>, <code>python manage.py seed_cogs</code>, <code>python manage.py runserver</code>.</p>
 
-<h2 id="admin">10. Admin / data operations</h2>
+<h2 id="admin">11. Admin / data operations</h2>
 <h4>Wipe imported data</h4>
 <p>The <code>/wipe/</code> endpoint clears imported data without touching COGS or Monthly Inputs. POST only, protected by the shared-password middleware.</p>
 <pre><code># Wipe everything
@@ -647,7 +682,7 @@ curl -X POST "https://pnl-rosabella.onrender.com/wipe/?what=orders"
 <h4>Database access</h4>
 <p>Render dashboard → Postgres service → connect via psql with the internal/external connection string. Tables are prefixed <code>core_</code> (e.g., <code>core_order</code>, <code>core_settlementrow</code>).</p>
 
-<h2 id="handoff">11. For the next maintainer / AI agent</h2>
+<h2 id="handoff">12. For the next maintainer / AI agent</h2>
 <p>If you're new to this project:</p>
 <ol>
   <li><strong>Read this README top-to-bottom.</strong> It explains every line item, file, and calculation.</li>
@@ -665,7 +700,7 @@ curl -X POST "https://pnl-rosabella.onrender.com/wipe/?what=orders"
   <li><strong>Costs</strong>: ~$32/mo (Render Web Service Standard $25 + Postgres Basic $7). Billed monthly to whoever owns the Render workspace.</li>
 </ul>
 
-<h2 id="gotchas">12. Known gotchas &amp; design decisions</h2>
+<h2 id="gotchas">13. Known gotchas &amp; design decisions</h2>
 <ul>
   <li><strong>Settlement files MUST be parsed with pandas, not openpyxl read-only.</strong> openpyxl read-only mode has a bug that returns only ~5 rows from the iterator. pandas is also more memory-efficient (~175 MB vs 500 MB+).</li>
   <li><strong>Date format is auto-detected per file.</strong> Shop Analytics uses DD/MM/YYYY, Ad Spend uses MM/DD/YYYY, Manage Orders uses MM/DD/YYYY with AM/PM. The <code>_to_date</code> helper in <code>importers.py</code> pre-scans the column for any day &gt; 12 to disambiguate.</li>
