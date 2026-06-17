@@ -550,9 +550,19 @@ FBT_LINE_TO_FIELD = {
 # 6. Seller Shipping (per-shipment postage) CSV importer
 # ===========================================================================
 def import_seller_shipping(file_obj, filename=''):
-    """CSV with cols: channel_name, shipped_date, reference_number, shipment_number,
-    ..., carrier_service, tracking, postage, ...
-    Dedup on shipment_number. Date format: 'Mon D, YYYY' (e.g., 'Apr 1, 2026')."""
+    """Seller-shipping CSV importer. Supports two formats:
+
+    LEGACY: channel_name, shipped_date, reference_number, shipment_number,
+            carrier_service, tracking, postage, ...
+
+    NEW (cost breakdown + order_date — preferred):
+            order_date, shipped_date, reference_number, customer_name,
+            postage, product_quantity, per_pack, per_pick
+
+    In the new format, `reference_number` is the de-facto unique key (each row is
+    a 3PL shipment line). It's stored in `shipment_number` so existing dedup logic
+    keeps working. Order date drives the P&L attribution (accrual-consistent).
+    Dates accept 'Apr 1, 2026', '2026-04-01', or '#N/A' (treated as null)."""
     raw = file_obj.read()
     if isinstance(raw, bytes):
         raw = raw.decode('utf-8-sig', errors='replace')
@@ -568,15 +578,34 @@ def import_seller_shipping(file_obj, filename=''):
         except ValueError: return -1
 
     c_chan = col('channel_name')
-    c_date = col('shipped_date')
+    c_order_date = col('order_date')
+    c_ship_date = col('shipped_date')
     c_ref = col('reference_number')
-    c_ship = col('shipment_number')
+    c_ship_num = col('shipment_number')
+    c_customer = col('customer_name')
     c_carrier = col('carrier_service')
     c_track = col('tracking')
     c_post = col('postage')
+    c_qty = col('product_quantity')
+    c_per_pack = col('per_pack')
+    c_per_pick = col('per_pick')
 
-    if c_ship < 0 or c_date < 0 or c_post < 0:
-        return {'added': 0, 'skipped': 0, 'errors': ['Missing required columns (shipment_number, shipped_date, postage)']}
+    # Determine which format. New format = has order_date + per_pack columns.
+    is_new_format = c_order_date >= 0 and c_per_pack >= 0
+    # The key column for dedup: use shipment_number if present (legacy), else reference_number (new).
+    c_key = c_ship_num if c_ship_num >= 0 else c_ref
+    if c_key < 0 or c_post < 0 or c_ship_date < 0:
+        return {'added': 0, 'skipped': 0,
+                'errors': ['Missing required columns (need shipment_number OR reference_number, plus shipped_date and postage)']}
+
+    def parse_loose_date(s):
+        """Parse 'Apr 1, 2026', '2026-04-01', etc. Returns None for '#N/A' or empty."""
+        if not s or s.lower() in ('#n/a', 'na', 'n/a'): return None
+        s = s.strip()
+        for fmt in ('%b %d, %Y', '%B %d, %Y', '%Y-%m-%d', '%Y/%m/%d', '%m/%d/%Y'):
+            try: return datetime.strptime(s, fmt).date()
+            except Exception: pass
+        return _to_date(s)
 
     existing = set(SellerShipmentCost.objects.values_list('shipment_number', flat=True))
     chunk = []
@@ -584,36 +613,49 @@ def import_seller_shipping(file_obj, filename=''):
     added_total = 0
     skipped = 0
 
+    UPDATE_FIELDS = [
+        'order_date', 'shipped_date', 'postage', 'per_pack', 'per_pick',
+        'product_quantity', 'reference_number', 'customer_name', 'source_file',
+    ]
+
     def flush(c):
         if not c: return 0
         with transaction.atomic():
-            SellerShipmentCost.objects.bulk_create(c, batch_size=500, ignore_conflicts=True)
+            SellerShipmentCost.objects.bulk_create(
+                c, batch_size=500,
+                update_conflicts=True,
+                unique_fields=['shipment_number'],
+                update_fields=UPDATE_FIELDS,
+            )
         return len(c)
 
     for row in reader:
-        if len(row) <= c_ship: continue
-        ship = _clean_str(row[c_ship])
-        if not ship: continue
-        if ship in existing:
-            skipped += 1; continue
-        existing.add(ship)
+        if len(row) <= c_key: continue
+        key = _clean_str(row[c_key])
+        if not key: continue
+        if key in existing:
+            skipped += 1
+        else:
+            existing.add(key)
 
-        # Parse 'Apr 1, 2026' format
-        d_raw = _clean_str(row[c_date]) if c_date >= 0 and c_date < len(row) else ''
-        d = None
-        for fmt in ('%b %d, %Y', '%B %d, %Y'):
-            try:
-                d = datetime.strptime(d_raw, fmt).date(); break
-            except: pass
-        if not d:
-            d = _to_date(d_raw)
-        if not d: continue
+        d_ship = parse_loose_date(_clean_str(row[c_ship_date])
+                                  if c_ship_date >= 0 and c_ship_date < len(row) else '')
+        d_order = parse_loose_date(_clean_str(row[c_order_date])
+                                    if c_order_date >= 0 and c_order_date < len(row) else '')
+        if not d_ship and not d_order: continue
+        # Shipped date is required for backward compat; if missing fall back to order date.
+        if not d_ship: d_ship = d_order
 
         chunk.append(SellerShipmentCost(
-            shipment_number=ship,
-            shipped_date=d,
+            shipment_number=key,
+            order_date=d_order,
+            shipped_date=d_ship,
             postage=_to_dec(row[c_post]) if c_post < len(row) else Decimal('0'),
+            per_pack=_to_dec(row[c_per_pack]) if c_per_pack >= 0 and c_per_pack < len(row) else Decimal('0'),
+            per_pick=_to_dec(row[c_per_pick]) if c_per_pick >= 0 and c_per_pick < len(row) else Decimal('0'),
+            product_quantity=_to_int(row[c_qty]) if c_qty >= 0 and c_qty < len(row) else 0,
             reference_number=_clean_str(row[c_ref]) if c_ref >= 0 and c_ref < len(row) else '',
+            customer_name=_clean_str(row[c_customer]) if c_customer >= 0 and c_customer < len(row) else '',
             carrier_service=_clean_str(row[c_carrier]) if c_carrier >= 0 and c_carrier < len(row) else '',
             tracking=_clean_str(row[c_track]) if c_track >= 0 and c_track < len(row) else '',
             channel_name=_clean_str(row[c_chan]) if c_chan >= 0 and c_chan < len(row) else '',
@@ -623,9 +665,13 @@ def import_seller_shipping(file_obj, filename=''):
             added_total += flush(chunk); chunk = []
 
     added_total += flush(chunk)
-    ImportLog.objects.create(importer='seller_shipping', filename=filename,
-                             rows_added=added_total, rows_skipped=skipped)
-    return {'added': added_total, 'skipped': skipped}
+    ImportLog.objects.create(
+        importer='seller_shipping', filename=filename,
+        rows_added=added_total, rows_skipped=skipped,
+        notes=f'Format: {"new (with order_date/per_pack/per_pick)" if is_new_format else "legacy"}',
+    )
+    return {'added': added_total, 'skipped': skipped,
+            'format': 'new' if is_new_format else 'legacy'}
 
 
 def import_fbt_billing(file_obj, period, filename=''):

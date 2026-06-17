@@ -91,12 +91,19 @@ class SettlementRow(models.Model):
 
 
 class SellerShipmentCost(models.Model):
-    """One row per shipment from seller-shipping CSV (e.g., 3PL postage breakdown).
-    Primary key is shipment_number — re-imports dedup on it."""
-    shipment_number = models.CharField(max_length=64, unique=True, db_index=True)
+    """One row per shipment from seller-shipping CSV (3PL postage + pack/pick breakdown).
+    Primary key is shipment_number — re-imports dedup on it.
+    `order_date` is the day the customer placed the order (accrual basis); `shipped_date`
+    is the day the package left the warehouse. Aggregator prefers order_date when present."""
+    shipment_number = models.CharField(max_length=128, unique=True, db_index=True)
+    order_date = models.DateField(db_index=True, null=True, blank=True)
     shipped_date = models.DateField(db_index=True)
     postage = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    reference_number = models.CharField(max_length=64, blank=True)
+    per_pack = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    per_pick = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    product_quantity = models.IntegerField(default=0)
+    reference_number = models.CharField(max_length=128, blank=True)
+    customer_name = models.CharField(max_length=128, blank=True)
     carrier_service = models.CharField(max_length=64, blank=True)
     tracking = models.CharField(max_length=128, blank=True)
     channel_name = models.CharField(max_length=64, blank=True)

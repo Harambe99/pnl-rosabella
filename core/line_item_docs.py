@@ -113,10 +113,10 @@ LINE_ITEM_DOCS = {
         'notes': 'Manual because TikTok\'s "Inbound Shipping Fee" only covers TikTok-arranged inbounds (usually $0 for self-shipped stock). Sum your monthly inbound shipping invoices and enter the total.',
     },
     'Cost to Ship to Customer': {
-        'what': 'Outbound 3PL postage cost for seller-shipped orders.',
-        'source': 'Seller Shipping CSV (3PL postage report).',
-        'formula': '-1 × sum(postage) per shipped_date.',
-        'notes': 'Attributed by ship date, not order date (cost hits when package leaves warehouse). Multi-SKU shipments deduplicate on shipment_number.',
+        'what': 'Full outbound 3PL cost per shipment — postage + per-pack fee + per-pick fee.',
+        'source': 'Seller Shipping CSV (3PL line-item report).',
+        'formula': '-1 × sum(postage + per_pack + per_pick) grouped by Order Date (falling back to Shipped Date if Order Date is missing).',
+        'notes': 'Accrual-attributed by Order Date — the day the customer placed the order — to stay consistent with the rest of the P&L. Older legacy rows that only have postage and shipped_date continue to flow in correctly.',
     },
 
     # ============================ FULFILLMENT — Adjustments ============================

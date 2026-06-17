@@ -4,7 +4,7 @@ P&L aggregation logic. Pulls from DB, computes daily/monthly P&L lines.
 from decimal import Decimal
 from datetime import date, timedelta
 from calendar import monthrange
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, F
 from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, SellerShipmentCost, AdLedgerDay, AdLedgerConfig
 
 
@@ -177,12 +177,21 @@ def compute_daily_pnl(start_date, end_date):
             result[d][label] = Decimal(sign) * val / dim
 
     # Seller-shipping per-day override for Cost to Ship to Customer.
-    # If any shipment rows exist for a month, use real daily sums for that whole month
-    # (overrides the flat-spread from Monthly Inputs).
+    # Cost = postage + per_pack + per_pick (the full 3PL line item per shipment).
+    # Attribution: order_date when present (accrual-consistent with the rest of
+    # the P&L), falling back to shipped_date for legacy rows without order_date.
+    # When any shipment rows exist for a month, the daily totals override the
+    # flat-spread from Monthly Inputs for that month.
+    from django.db.models.functions import Coalesce
     ship_qs = SellerShipmentCost.objects.filter(
-        shipped_date__gte=start_date, shipped_date__lte=end_date
-    ).values('shipped_date').annotate(total=Sum('postage'))
-    daily_ship = {r['shipped_date']: r['total'] or ZERO for r in ship_qs}
+        Q(order_date__gte=start_date, order_date__lte=end_date)
+        | Q(order_date__isnull=True, shipped_date__gte=start_date, shipped_date__lte=end_date)
+    ).annotate(
+        attr_date=Coalesce('order_date', 'shipped_date'),
+    ).values('attr_date').annotate(
+        total=Sum(F('postage') + F('per_pack') + F('per_pick')),
+    )
+    daily_ship = {r['attr_date']: r['total'] or ZERO for r in ship_qs}
     months_with_ship = {f'{d.year:04d}-{d.month:02d}' for d in daily_ship.keys()}
     for d in dates:
         mkey = f'{d.year:04d}-{d.month:02d}'
