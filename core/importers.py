@@ -665,13 +665,32 @@ def import_seller_shipping(file_obj, filename=''):
             added_total += flush(chunk); chunk = []
 
     added_total += flush(chunk)
+
+    # Legacy cleanup: when a NEW-format file is imported, also delete any leftover
+    # legacy rows. Legacy rows were keyed by `shipment_number` (3PL-internal IDs
+    # like "CS12186116") while new-format rows are keyed by `reference_number`
+    # (TikTok order IDs like "577410…" or short order codes). Same physical
+    # shipment, two different keys → no dedup → double-count on Cost to Ship to
+    # Customer. Legacy rows have per_pack=0 AND per_pick=0 (those columns didn't
+    # exist when they were imported). New rows always have per_pack > 0.
+    legacy_deleted = 0
+    if is_new_format:
+        with transaction.atomic():
+            legacy_deleted, _ = SellerShipmentCost.objects.filter(
+                per_pack=0, per_pick=0,
+            ).delete()
+
+    note_parts = [f'Format: {"new (with order_date/per_pack/per_pick)" if is_new_format else "legacy"}']
+    if legacy_deleted:
+        note_parts.append(f'Cleaned up {legacy_deleted:,} legacy rows (postage-only)')
     ImportLog.objects.create(
         importer='seller_shipping', filename=filename,
         rows_added=added_total, rows_skipped=skipped,
-        notes=f'Format: {"new (with order_date/per_pack/per_pick)" if is_new_format else "legacy"}',
+        notes=' | '.join(note_parts),
     )
     return {'added': added_total, 'skipped': skipped,
-            'format': 'new' if is_new_format else 'legacy'}
+            'format': 'new' if is_new_format else 'legacy',
+            'legacy_cleaned': legacy_deleted}
 
 
 def import_fbt_billing(file_obj, period, filename=''):
