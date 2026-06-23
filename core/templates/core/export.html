@@ -8,9 +8,9 @@
   every row. Click any line-item label in the P&amp;L sheet to jump to its explanation.
 </p>
 
-<div class="row g-4 mt-2" style="max-width: 900px;">
+<div class="row g-4 mt-2" style="max-width: 1200px;">
 
-  <div class="col-md-6">
+  <div class="col-md-4">
     <div class="card p-3 h-100">
       <h5>Monthly-level P&amp;L</h5>
       <p class="text-muted small mb-3">One column with the month's totals plus a % of Net Revenue column for each row. Use this for month-on-month comparisons or to paste into a deck.</p>
@@ -23,7 +23,22 @@
     </div>
   </div>
 
-  <div class="col-md-6">
+  <div class="col-md-4">
+    <div class="card p-3 h-100">
+      <h5>Multi-month P&amp;L</h5>
+      <p class="text-muted small mb-3">Pick a start and end month — get a single XLSX with one column-pair ($ and % NR) per month, plus a final Total column-pair across the whole range. Great for quarterly or YTD views.</p>
+      <form method="get" action="{% url 'export_pnl' %}">
+        <input type="hidden" name="mode" value="monthly">
+        <label class="form-label small">From month</label>
+        <input type="month" name="from_month" value="{{ current_month }}" class="form-control mb-2" required>
+        <label class="form-label small">To month</label>
+        <input type="month" name="to_month" value="{{ current_month }}" class="form-control mb-3" required>
+        <button class="btn btn-primary" type="submit">Download multi-month XLSX</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-md-4">
     <div class="card p-3 h-100">
       <h5>Daily-level P&amp;L</h5>
       <p class="text-muted small mb-3">One column per day of the chosen month plus a month-total column. Includes $ and % NR for every cell. Use this for granular review or specific-day performance.</p>

@@ -227,20 +227,36 @@ def export_pnl(request):
     import io
     mode = request.GET.get('mode')
     yyyy_mm = request.GET.get('month', '')
+    from_mm = request.GET.get('from_month', '')
+    to_mm = request.GET.get('to_month', '')
 
     if not mode:
         return render(request, 'core/export.html', {
             'current_month': date.today().strftime('%Y-%m'),
         })
-
-    try:
-        y, m = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
-        if y < 2020 or y > 2099 or m < 1 or m > 12:
-            return HttpResponse('Invalid month', status=400)
-    except Exception:
-        return HttpResponse('Invalid month', status=400)
     if mode not in ('monthly', 'daily'):
         return HttpResponse('mode must be monthly or daily', status=400)
+
+    # Multi-month range — monthly mode only, both from/to set
+    is_range = (mode == 'monthly' and from_mm and to_mm)
+    if is_range:
+        try:
+            fy, fm = int(from_mm[:4]), int(from_mm[5:7])
+            ty, tm = int(to_mm[:4]), int(to_mm[5:7])
+            for yr, mo in [(fy, fm), (ty, tm)]:
+                if yr < 2020 or yr > 2099 or mo < 1 or mo > 12:
+                    return HttpResponse('Invalid month range', status=400)
+            if (fy, fm) > (ty, tm):
+                return HttpResponse('from_month must be on or before to_month', status=400)
+        except Exception:
+            return HttpResponse('Invalid month range', status=400)
+    else:
+        try:
+            y, m = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
+            if y < 2020 or y > 2099 or m < 1 or m > 12:
+                return HttpResponse('Invalid month', status=400)
+        except Exception:
+            return HttpResponse('Invalid month', status=400)
 
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -294,7 +310,100 @@ def export_pnl(request):
             cell.font = F_LINK
 
     # ---- Sheet 1 — the P&L ----
-    if mode == 'monthly':
+    if mode == 'monthly' and is_range:
+        # Multi-month range: one $/%NR column-pair per month + a Total range pair.
+        months = []
+        cy, cm = fy, fm
+        while (cy, cm) <= (ty, tm):
+            months.append((cy, cm))
+            cm += 1
+            if cm > 12:
+                cm = 1; cy += 1
+
+        monthly_per = {}
+        nr_per = {}
+        for (yr, mo) in months:
+            start = date(yr, mo, 1)
+            end = date(yr, mo, monthrange(yr, mo)[1])
+            daily = compute_daily_pnl(start, end)
+            m_totals = {}
+            for d, row in daily.items():
+                for label, val in row.items():
+                    m_totals[label] = m_totals.get(label, Decimal('0')) + (val or Decimal('0'))
+            monthly_per[(yr, mo)] = m_totals
+            nr_per[(yr, mo)] = m_totals.get('NET REVENUE') or Decimal('0')
+        range_nr = sum((nr_per[k] for k in months), Decimal('0'))
+
+        ws.title = f'Monthly P&L {from_mm}..{to_mm}'
+
+        # Two-row header: month labels (merged across $/%NR) on row 1, $/%NR on row 2
+        hdr1 = ['Line Item']
+        for yr, mo in months:
+            hdr1.extend([date(yr, mo, 1).strftime('%b %Y'), ''])
+        hdr1.extend([f'Total {from_mm}–{to_mm}', ''])
+        ws.append(hdr1)
+        hdr2 = ['']
+        for _ in months: hdr2.extend(['$', '% NR'])
+        hdr2.extend(['$', '% NR'])
+        ws.append(hdr2)
+        for c in ws[1]:
+            c.font = F_HEAD; c.fill = FILL_HEAD; c.alignment = Alignment(horizontal='center')
+        for c in ws[2]:
+            c.font = F_HEAD; c.fill = FILL_HEAD; c.alignment = Alignment(horizontal='center')
+        for i, _ in enumerate(months):
+            col = 2 + i * 2
+            ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + 1)
+        total_col = 2 + len(months) * 2
+        ws.merge_cells(start_row=1, start_column=total_col, end_row=1, end_column=total_col + 1)
+        ws.column_dimensions['A'].width = 42
+        for i in range(2, len(hdr1) + 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 13
+
+        excel_row = 3
+        for label, rtype in PNL_ROW_LAYOUT:
+            if rtype == 'blank':
+                ws.row_dimensions[excel_row].height = 8
+                excel_row += 1; continue
+            if rtype in ('section', 'sub'):
+                cell = ws.cell(excel_row, 1, label)
+                if rtype == 'section':
+                    cell.font = F_SECTION; cell.fill = FILL_SECTION
+                else:
+                    cell.font = F_SUB; cell.fill = FILL_SUB
+                excel_row += 1; continue
+            label_cell = ws.cell(excel_row, 1, label)
+            link_label_cell(label_cell, label)
+            if rtype == 'total':
+                label_cell.font = F_TOTAL
+            col = 2
+            range_total = Decimal('0')
+            for m_key in months:
+                v = monthly_per[m_key].get(label)
+                nr_m = nr_per[m_key]
+                if v is not None:
+                    c1 = ws.cell(excel_row, col, float(v))
+                    c1.number_format = '$#,##0.00;[Red]($#,##0.00)'
+                    if nr_m and float(nr_m) != 0:
+                        c2 = ws.cell(excel_row, col + 1, float(v) / float(nr_m))
+                        c2.number_format = '0.0%;[Red](0.0%)'
+                    range_total += v
+                    if rtype == 'total':
+                        c1.font = F_TOTAL; c1.fill = FILL_TOTAL
+                col += 2
+            c1 = ws.cell(excel_row, col, float(range_total))
+            c1.number_format = '$#,##0.00;[Red]($#,##0.00)'
+            if range_nr and float(range_nr) != 0:
+                c2 = ws.cell(excel_row, col + 1, float(range_total) / float(range_nr))
+                c2.number_format = '0.0%;[Red](0.0%)'
+                if rtype == 'total':
+                    c2.font = F_TOTAL; c2.fill = FILL_TOTAL
+            if rtype == 'total':
+                c1.font = F_TOTAL; c1.fill = FILL_TOTAL
+            excel_row += 1
+        ws.freeze_panes = 'B3'
+        filename = f'pnl_monthly_{from_mm}_to_{to_mm}.xlsx'
+
+    elif mode == 'monthly':
         ws.title = f'Monthly P&L {yyyy_mm}'
         start = date(y, m, 1)
         end = date(y, m, monthrange(y, m)[1])
