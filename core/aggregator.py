@@ -273,17 +273,19 @@ def compute_daily_pnl(start_date, end_date):
 
 
 def compute_monthly_pnl(year):
-    """Aggregate Daily P&L into Monthly P&L for the given year."""
-    months = {}
-    for m in range(1, 13):
-        start = date(year, m, 1)
-        end = date(year, m, monthrange(year, m)[1])
-        daily = compute_daily_pnl(start, end)
-        monthly = {}
-        for d, row in daily.items():
-            for label, val in row.items():
-                monthly[label] = monthly.get(label, ZERO) + (val or ZERO)
-        months[f'{year:04d}-{m:02d}'] = monthly
+    """Aggregate Daily P&L into Monthly P&L for the given year.
+
+    Runs ONE year-wide compute_daily_pnl and buckets the result by month.
+    Previously called compute_daily_pnl 12 times, which made the Monthly P&L
+    page do ~12× the database round-trips it needed. Same numbers, much faster.
+    """
+    daily = compute_daily_pnl(date(year, 1, 1), date(year, 12, 31))
+    months = {f'{year:04d}-{m:02d}': {} for m in range(1, 13)}
+    for d, row in daily.items():
+        mkey = f'{d.year:04d}-{d.month:02d}'
+        mrow = months[mkey]
+        for label, val in row.items():
+            mrow[label] = mrow.get(label, ZERO) + (val or ZERO)
     return months
 
 
