@@ -8,9 +8,13 @@ from django.http import HttpResponse
 from django.contrib import messages
 from django.views.decorators.csrf import csrf_exempt
 
+from django.db.models import Q
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment
 from .models import (COGSItem, MonthlyInput, ImportLog, MonthlyInputAudit,
                      AdLedgerDay, AdLedgerConfig, AgencyPromoTag, AgencyInvoice,
-                     AdTransaction)
+                     AdTransaction, Order, SettlementRow, SellerShipmentCost,
+                     AnalyticsDay, AdSpendDay)
 from .aggregator import compute_daily_pnl, compute_monthly_pnl, PNL_ROW_LAYOUT
 from .importers import (import_manage_orders, import_settlement,
                         import_shop_analytics, import_ad_spend, import_fbt_billing,
@@ -220,10 +224,377 @@ def readme(request):
     return render(request, 'core/readme.html')
 
 
+# ===========================================================================
+# Export helpers — Source data sheets + working hyperlinks
+# ===========================================================================
+
+# Maps each P&L line label → the source sheet that backs it. Lines without
+# an entry have no source (computed totals, section headers, manual inputs).
+# Keys are stripped of leading whitespace to match LINE_ITEM_DOCS format —
+# PNL_ROW_LAYOUT uses indented labels (e.g. '   FBT Fulfillment Fee') but
+# lookups use the stripped form.
+LINE_ITEM_TO_SOURCE = {
+    'Gross Sales': 'Source — Manage Orders',
+    'Less: Promos & Discounts': 'Source — Manage Orders',
+    'COGS': 'Source — Manage Orders',
+    'GMV (TikTok Analytics — reference)': 'Source — Shop Analytics',
+    'Less: Refunds': 'Source — Settlement',
+    'FBT Fulfillment Fee': 'Source — Settlement',
+    'FBT Fulfillment Reimbursement': 'Source — Settlement',
+    'TT Shop Shipping Incentive': 'Source — Settlement',
+    'Shipping Fee Subsidy': 'Source — Settlement',
+    'Customer Shipping Fee Offset': 'Source — Settlement',
+    'Customer-Paid Shipping Fee': 'Source — Settlement',
+    'Customer-Paid Shipping Refund': 'Source — Settlement',
+    'Seller Shipping Fee Discount': 'Source — Settlement',
+    'Logistics Reimbursement': 'Source — Settlement',
+    'FBT Warehouse Compensation': 'Source — Settlement',
+    'FBT Warehouse Service Fee': 'Source — Settlement',
+    'Referral Fee': 'Source — Settlement',
+    'Refund Admin Fee': 'Source — Settlement',
+    'Campaign Service Fee': 'Source — Settlement',
+    'Violation Fee': 'Source — Settlement',
+    'TikTok Shop Reimb': 'Source — Settlement',
+    'Rebate': 'Source — Settlement',
+    'Co-funded Promotion (seller-funded)': 'Source — Settlement',
+    'Co-funded Promotion Campaign Period Fee': 'Source — Settlement',
+    'Chargebacks': 'Source — Settlement',
+    'Unclassified Adjustments': 'Source — Settlement',
+    'Platform (Affiliate Commission)': 'Source — Settlement',
+    'Cost to Ship to FBT': 'Source — FBT Billing',
+    'FBT Hub Placement Fee': 'Source — FBT Billing',
+    'FBT Storage Fee': 'Source — FBT Billing',
+    'FBT Inbound Shipping Fee': 'Source — FBT Billing',
+    'FBT Inbound Incidents Fee': 'Source — FBT Billing',
+    'FBT Booking Non-Compliance': 'Source — FBT Billing',
+    'FBT Routing Non-Compliance': 'Source — FBT Billing',
+    'FBT Outbound No-Show': 'Source — FBT Billing',
+    'FBT Delayed Response Fee': 'Source — FBT Billing',
+    'FBT Disposal Fee': 'Source — FBT Billing',
+    'FBT Return Shipping (VAS)': 'Source — FBT Billing',
+    'FBT Return to Seller Handling': 'Source — FBT Billing',
+    'FBT Inbound Return Operation': 'Source — FBT Billing',
+    'Cost to Ship to Customer': 'Source — Seller Shipping',
+    'Ad Spend — Direct to TikTok (cash)': 'Source — Ad Spend',
+    'Less: TBSM Savings': 'Source — Ad Ledger',
+    'Less: TT Promo Credits': 'Source — Ad Ledger',
+}
+
+
+def _set_internal_link(cell, sheet_name, anchor='A1', link_font=None):
+    """Set a proper internal hyperlink on a cell — works in Excel AND Google Sheets.
+    openpyxl's string-style ``cell.hyperlink = "#'Sheet'!A1"`` writes XML that
+    Google Sheets silently ignores. The explicit Hyperlink object writes the
+    OOXML element both apps honor."""
+    from openpyxl.worksheet.hyperlink import Hyperlink
+    safe = sheet_name.replace("'", "''")
+    cell.hyperlink = Hyperlink(
+        ref=cell.coordinate,
+        location=f"'{safe}'!{anchor}",
+        display=str(cell.value) if cell.value is not None else '',
+    )
+    if link_font is not None:
+        cell.font = link_font
+
+
+def _build_source_sheets(wb, start_date, end_date, styles):
+    """Build Source — * sheets covering [start_date, end_date]. Each sheet contains
+    only the columns the importer actually reads. Sheets are grouped by source TYPE
+    (Orders, Settlement, etc.) and rows are sorted chronologically so months in a
+    multi-month export appear adjacent. Returns the set of sheet names actually
+    created (some sources may have no rows in range and get skipped)."""
+    F_HEAD = styles['head']; FILL_HEAD = styles['fill_head']
+    F_TOTAL = styles['total']; FILL_TOTAL = styles['fill_total']
+    F_MONTH = styles['month']; FILL_MONTH = styles['fill_month']
+    BORDER = styles['border']
+    DOLLAR = '$#,##0.00;[Red]($#,##0.00)'
+    DATE_FMT = 'yyyy-mm-dd'
+
+    created = set()
+    months_in_range = []
+    cy, cm = start_date.year, start_date.month
+    while (cy, cm) <= (end_date.year, end_date.month):
+        months_in_range.append((cy, cm))
+        cm += 1
+        if cm > 12: cm = 1; cy += 1
+
+    def _section_header(ws, row, label, n_cols):
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
+        c = ws.cell(row, 1, label)
+        c.font = F_MONTH; c.fill = FILL_MONTH
+        c.alignment = Alignment(horizontal='left', vertical='center')
+        ws.row_dimensions[row].height = 20
+
+    def _write_header(ws, headers, widths):
+        for i, h in enumerate(headers, start=1):
+            c = ws.cell(1, i, h)
+            c.font = F_HEAD; c.fill = FILL_HEAD
+            c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            c.border = BORDER
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+        ws.row_dimensions[1].height = 28
+
+    # --- Source — Manage Orders ---
+    o_cols = ['Order Created Date', 'Order ID', 'SKU ID', 'Status', 'Quantity',
+              'Gross Sales', 'Seller Discount (Promos)', 'COGS']
+    o_widths = [16, 22, 22, 14, 9, 14, 16, 12]
+    o_qs = Order.objects.filter(
+        created_date__gte=start_date, created_date__lte=end_date
+    ).values_list('created_date', 'order_id', 'sku_id', 'status', 'quantity',
+                  'gross_sale', 'seller_discount', 'cogs').order_by('created_date', 'order_id')
+    o_rows = list(o_qs)
+    if o_rows:
+        ws = wb.create_sheet('Source — Manage Orders')
+        _write_header(ws, o_cols, o_widths)
+        r = 2; current_month = None
+        totals = [Decimal('0')] * 3  # gross, disc, cogs
+        for od, oid, sku, status, qty, gross, disc, cogs in o_rows:
+            mkey = (od.year, od.month)
+            if mkey != current_month:
+                _section_header(ws, r, od.strftime('%B %Y').upper(), len(o_cols))
+                r += 1
+                current_month = mkey
+            ws.cell(r, 1, od).number_format = DATE_FMT
+            ws.cell(r, 2, oid); ws.cell(r, 3, sku); ws.cell(r, 4, status); ws.cell(r, 5, qty or 0)
+            ws.cell(r, 6, float(gross or 0)).number_format = DOLLAR
+            ws.cell(r, 7, float(disc or 0)).number_format = DOLLAR
+            ws.cell(r, 8, float(cogs or 0)).number_format = DOLLAR
+            totals[0] += gross or Decimal('0'); totals[1] += disc or Decimal('0'); totals[2] += cogs or Decimal('0')
+            r += 1
+        # Grand total row
+        ws.cell(r, 1, 'GRAND TOTAL').font = F_TOTAL
+        for col, val in zip([6, 7, 8], totals):
+            c = ws.cell(r, col, float(val)); c.number_format = DOLLAR
+            c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.freeze_panes = 'A2'
+        created.add('Source — Manage Orders')
+
+    # --- Source — Settlement ---
+    s_cols = ['Order Created Date', 'Statement Date', 'Order/Adjustment ID', 'Statement ID', 'Type', 'Qty',
+              'Referral Fee', 'Refund Admin Fee', 'Campaign Service Fee',
+              'Affiliate Total', 'FBT Fulfillment Fee', 'FBT Fulfillment Reimb',
+              'Shipping (parent)', 'TT Shop Shipping Incentive', 'Shipping Fee Subsidy',
+              'Customer Shipping Fee Offset', 'Customer-Paid Shipping Fee',
+              'Customer-Paid Shipping Refund', 'Seller Shipping Fee Discount',
+              'Co-funded Promo (seller)', 'Co-funded Promo Campaign Fee',
+              'Refund Total', 'Chargeback', 'Violation Fee', 'TT Shop Reimb',
+              'Logistics Reimb', 'FBT Warehouse Service Fee', 'FBT Warehouse Comp',
+              'Rebate', 'Unclassified Adjustment']
+    s_widths = [16, 14, 22, 18, 22, 6] + [14]*24
+    s_qs = SettlementRow.objects.filter(
+        order_created_date__gte=start_date, order_created_date__lte=end_date
+    ).values_list(
+        'order_created_date', 'statement_date', 'order_id', 'settlement_id', 'row_type', 'quantity',
+        'referral_fee', 'refund_admin', 'campaign_fee', 'affiliate_total',
+        'fbt_fee', 'fbt_reimb', 'shipping', 'tt_shop_shipping_incentive',
+        'shipping_fee_subsidy', 'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
+        'customer_paid_shipping_refund', 'seller_shipping_fee_discount',
+        'cofunded_promo', 'cofunded_promo_campaign_fee', 'refund_total',
+        'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
+        'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
+    ).order_by('order_created_date', 'order_id')
+    s_rows = list(s_qs)
+    if s_rows:
+        ws = wb.create_sheet('Source — Settlement')
+        _write_header(ws, s_cols, s_widths)
+        r = 2; current_month = None
+        n_money_cols = len(s_cols) - 6  # all cols after qty are money
+        totals = [Decimal('0')] * n_money_cols
+        for row_tuple in s_rows:
+            od = row_tuple[0]
+            mkey = (od.year, od.month) if od else None
+            if mkey and mkey != current_month:
+                _section_header(ws, r, od.strftime('%B %Y').upper(), len(s_cols))
+                r += 1
+                current_month = mkey
+            for i, v in enumerate(row_tuple, start=1):
+                if i == 1 or i == 2:  # dates
+                    if v: ws.cell(r, i, v).number_format = DATE_FMT
+                elif i <= 5:  # text/id
+                    ws.cell(r, i, v if v is not None else '')
+                elif i == 6:  # qty
+                    ws.cell(r, i, v or 0)
+                else:  # money
+                    c = ws.cell(r, i, float(v or 0))
+                    c.number_format = DOLLAR
+                    totals[i - 7] += v or Decimal('0')
+            r += 1
+        ws.cell(r, 1, 'GRAND TOTAL').font = F_TOTAL
+        for j, val in enumerate(totals):
+            c = ws.cell(r, 7 + j, float(val)); c.number_format = DOLLAR
+            c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.freeze_panes = 'A2'
+        created.add('Source — Settlement')
+
+    # --- Source — Seller Shipping ---
+    sh_cols = ['Order Date', 'Shipped Date', 'Reference Number', 'Customer', 'Carrier',
+               'Postage', 'Qty', 'Per Pack', 'Per Pick', 'Total']
+    sh_widths = [12, 12, 26, 24, 18, 10, 6, 10, 10, 12]
+    sh_qs = SellerShipmentCost.objects.filter(
+        Q(order_date__gte=start_date, order_date__lte=end_date)
+        | Q(order_date__isnull=True, shipped_date__gte=start_date, shipped_date__lte=end_date)
+    ).order_by('order_date', 'shipped_date')
+    sh_list = list(sh_qs.values_list(
+        'order_date', 'shipped_date', 'reference_number', 'customer_name',
+        'carrier_service', 'postage', 'product_quantity', 'per_pack', 'per_pick'))
+    if sh_list:
+        ws = wb.create_sheet('Source — Seller Shipping')
+        _write_header(ws, sh_cols, sh_widths)
+        r = 2; current_month = None
+        t_postage = t_pack = t_pick = t_total = Decimal('0')
+        for od, sd, ref, cust, carr, postage, qty, per_pack, per_pick in sh_list:
+            anchor = od or sd
+            mkey = (anchor.year, anchor.month) if anchor else None
+            if mkey and mkey != current_month:
+                _section_header(ws, r, anchor.strftime('%B %Y').upper(), len(sh_cols))
+                r += 1
+                current_month = mkey
+            if od: ws.cell(r, 1, od).number_format = DATE_FMT
+            if sd: ws.cell(r, 2, sd).number_format = DATE_FMT
+            ws.cell(r, 3, ref or ''); ws.cell(r, 4, cust or ''); ws.cell(r, 5, carr or '')
+            ws.cell(r, 6, float(postage or 0)).number_format = DOLLAR
+            ws.cell(r, 7, qty or 0)
+            ws.cell(r, 8, float(per_pack or 0)).number_format = DOLLAR
+            ws.cell(r, 9, float(per_pick or 0)).number_format = DOLLAR
+            total = (postage or Decimal('0')) + (per_pack or Decimal('0')) + (per_pick or Decimal('0'))
+            ws.cell(r, 10, float(total)).number_format = DOLLAR
+            t_postage += postage or Decimal('0'); t_pack += per_pack or Decimal('0')
+            t_pick += per_pick or Decimal('0'); t_total += total
+            r += 1
+        ws.cell(r, 1, 'GRAND TOTAL').font = F_TOTAL
+        for col, val in zip([6, 8, 9, 10], [t_postage, t_pack, t_pick, t_total]):
+            c = ws.cell(r, col, float(val)); c.number_format = DOLLAR
+            c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.freeze_panes = 'A2'
+        created.add('Source — Seller Shipping')
+
+    # --- Source — FBT Billing (one row per month) ---
+    fbt_cols = ['Month', 'Cost to Ship to FBT', 'FBT Hub Placement Fee', 'FBT Storage Fee',
+                'FBT Inbound Shipping Fee', 'FBT Inbound Incidents Fee',
+                'FBT Booking Non-Compliance', 'FBT Routing Non-Compliance',
+                'FBT Outbound No-Show', 'FBT Delayed Response Fee',
+                'FBT Disposal Fee', 'FBT Return Shipping (VAS)',
+                'FBT Return to Seller Handling', 'FBT Inbound Return Operation']
+    fbt_widths = [11] + [16]*13
+    fbt_fields = ['cost_ship_to_fbt', 'fbt_hub_placement', 'fbt_storage',
+                  'fbt_inbound_shipping', 'fbt_inbound_incidents', 'fbt_booking_noncomp',
+                  'fbt_routing_noncomp', 'fbt_outbound_noshow', 'fbt_delayed_response',
+                  'fbt_disposal', 'fbt_return_shipping', 'fbt_return_seller_handling',
+                  'fbt_inbound_return_op']
+    months_set = {f'{y:04d}-{m:02d}' for y, m in months_in_range}
+    mi_qs = MonthlyInput.objects.filter(month__in=months_set).order_by('month')
+    mi_list = list(mi_qs)
+    if mi_list:
+        ws = wb.create_sheet('Source — FBT Billing')
+        _write_header(ws, fbt_cols, fbt_widths)
+        r = 2
+        totals = [Decimal('0')] * len(fbt_fields)
+        for mi in mi_list:
+            ws.cell(r, 1, mi.month)
+            for j, f in enumerate(fbt_fields):
+                v = getattr(mi, f) or Decimal('0')
+                c = ws.cell(r, 2 + j, float(v)); c.number_format = DOLLAR
+                totals[j] += v
+            r += 1
+        ws.cell(r, 1, 'GRAND TOTAL').font = F_TOTAL
+        for j, val in enumerate(totals):
+            c = ws.cell(r, 2 + j, float(val)); c.number_format = DOLLAR
+            c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.freeze_panes = 'A2'
+        created.add('Source — FBT Billing')
+
+    # --- Source — Shop Analytics ---
+    an_qs = AnalyticsDay.objects.filter(date__gte=start_date, date__lte=end_date).order_by('date')
+    an_list = list(an_qs.values_list('date', 'gmv', 'orders', 'items_sold'))
+    if an_list:
+        ws = wb.create_sheet('Source — Shop Analytics')
+        _write_header(ws, ['Date', 'GMV', 'Orders', 'Items Sold'], [12, 14, 10, 10])
+        r = 2; current_month = None
+        t_gmv = Decimal('0'); t_orders = 0; t_items = 0
+        for d, gmv, orders, items in an_list:
+            mkey = (d.year, d.month)
+            if mkey != current_month:
+                _section_header(ws, r, d.strftime('%B %Y').upper(), 4)
+                r += 1
+                current_month = mkey
+            ws.cell(r, 1, d).number_format = DATE_FMT
+            ws.cell(r, 2, float(gmv or 0)).number_format = DOLLAR
+            ws.cell(r, 3, orders or 0); ws.cell(r, 4, items or 0)
+            t_gmv += gmv or Decimal('0'); t_orders += orders or 0; t_items += items or 0
+            r += 1
+        ws.cell(r, 1, 'GRAND TOTAL').font = F_TOTAL
+        c = ws.cell(r, 2, float(t_gmv)); c.number_format = DOLLAR; c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.cell(r, 3, t_orders).font = F_TOTAL; ws.cell(r, 4, t_items).font = F_TOTAL
+        ws.freeze_panes = 'A2'
+        created.add('Source — Shop Analytics')
+
+    # --- Source — Ad Spend ---
+    ad_qs = AdSpendDay.objects.filter(date__gte=start_date, date__lte=end_date).order_by('date')
+    ad_list = list(ad_qs.values_list('date', 'cost', 'sku_orders', 'gross_revenue'))
+    if ad_list:
+        ws = wb.create_sheet('Source — Ad Spend')
+        _write_header(ws, ['Date', 'Cost', 'SKU Orders', 'Gross Revenue'], [12, 14, 12, 14])
+        r = 2; current_month = None
+        t_cost = Decimal('0'); t_orders = 0; t_rev = Decimal('0')
+        for d, cost, orders, rev in ad_list:
+            mkey = (d.year, d.month)
+            if mkey != current_month:
+                _section_header(ws, r, d.strftime('%B %Y').upper(), 4)
+                r += 1
+                current_month = mkey
+            ws.cell(r, 1, d).number_format = DATE_FMT
+            ws.cell(r, 2, float(cost or 0)).number_format = DOLLAR
+            ws.cell(r, 3, orders or 0)
+            ws.cell(r, 4, float(rev or 0)).number_format = DOLLAR
+            t_cost += cost or Decimal('0'); t_orders += orders or 0; t_rev += rev or Decimal('0')
+            r += 1
+        ws.cell(r, 1, 'GRAND TOTAL').font = F_TOTAL
+        c = ws.cell(r, 2, float(t_cost)); c.number_format = DOLLAR; c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.cell(r, 3, t_orders).font = F_TOTAL
+        c = ws.cell(r, 4, float(t_rev)); c.number_format = DOLLAR; c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.freeze_panes = 'A2'
+        created.add('Source — Ad Spend')
+
+    # --- Source — Ad Ledger (only if FIFO engine ON) ---
+    cfg = AdLedgerConfig.objects.filter(pk=1).first()
+    if cfg and cfg.feed_pnl:
+        al_qs = AdLedgerDay.objects.filter(date__gte=start_date, date__lte=end_date).order_by('date')
+        al_list = list(al_qs.values_list('date', 'spend', 'savings_tbsm', 'savings_promo'))
+        if al_list:
+            ws = wb.create_sheet('Source — Ad Ledger')
+            _write_header(ws, ['Date', 'Spend', 'TBSM Savings', 'TT Promo Credits'], [12, 14, 14, 16])
+            r = 2; current_month = None
+            t_spend = Decimal('0'); t_tbsm = Decimal('0'); t_promo = Decimal('0')
+            for d, spend, tbsm, promo in al_list:
+                mkey = (d.year, d.month)
+                if mkey != current_month:
+                    _section_header(ws, r, d.strftime('%B %Y').upper(), 4)
+                    r += 1
+                    current_month = mkey
+                ws.cell(r, 1, d).number_format = DATE_FMT
+                ws.cell(r, 2, float(spend or 0)).number_format = DOLLAR
+                ws.cell(r, 3, float(tbsm or 0)).number_format = DOLLAR
+                ws.cell(r, 4, float(promo or 0)).number_format = DOLLAR
+                t_spend += spend or Decimal('0'); t_tbsm += tbsm or Decimal('0'); t_promo += promo or Decimal('0')
+                r += 1
+            ws.cell(r, 1, 'GRAND TOTAL').font = F_TOTAL
+            for col, val in zip([2, 3, 4], [t_spend, t_tbsm, t_promo]):
+                c = ws.cell(r, col, float(val)); c.number_format = DOLLAR
+                c.font = F_TOTAL; c.fill = FILL_TOTAL
+            ws.freeze_panes = 'A2'
+            created.add('Source — Ad Ledger')
+
+    return created
+
+
 def export_pnl(request):
     """GET: show the export page. With ?mode= & ?month= query: stream XLSX.
-    Monthly export has 2 sheets — the P&L + a 'Line Item Guide' with explanations.
-    Line item labels in the P&L sheet are hyperlinks that jump to the guide row."""
+    Monthly + Multi-month exports include a Line Item Guide and Source — *
+    sheets containing the raw imported rows for each line item, filtered to
+    the export's date range. Click any line label in Sheet 1 → land in the
+    Line Item Guide; click the guide row's "View Source Data" → land in the
+    raw source rows for that line."""
     import io
     mode = request.GET.get('mode')
     yyyy_mm = request.GET.get('month', '')
@@ -271,21 +642,46 @@ def export_pnl(request):
     F_SUB = Font(bold=True, size=10)
     F_TOTAL = Font(bold=True, size=11)
     F_LINK = Font(color='0563C1', underline='single', size=10)
+    F_MONTH = Font(bold=True, size=12, color='FFFFFF')
     FILL_HEAD = PatternFill('solid', fgColor='2D3748')
     FILL_SECTION = PatternFill('solid', fgColor='4A5568')
     FILL_SUB = PatternFill('solid', fgColor='E2E8F0')
     FILL_TOTAL = PatternFill('solid', fgColor='EDF2F7')
+    FILL_MONTH = PatternFill('solid', fgColor='4A5568')
     THIN = Side(style='thin', color='CBD5E0')
     BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
-    # ---- Build Sheet 2 first ('Line Item Guide') so we know each row number ----
+    SOURCE_STYLES = {
+        'head': F_HEAD, 'fill_head': FILL_HEAD,
+        'total': F_TOTAL, 'fill_total': FILL_TOTAL,
+        'month': F_MONTH, 'fill_month': FILL_MONTH,
+        'border': BORDER,
+    }
+
+    # Date range for source sheets — set per mode below
+    src_start = src_end = None
+    if mode == 'monthly' and is_range:
+        src_start = date(fy, fm, 1)
+        src_end = date(ty, tm, monthrange(ty, tm)[1])
+    elif mode == 'monthly':
+        src_start = date(y, m, 1)
+        src_end = date(y, m, monthrange(y, m)[1])
+    # Daily mode: skip source sheets (Daily P&L already shows the breakdown)
+
+    # ---- Build source sheets FIRST (need their names for the Guide hyperlinks) ----
+    sheets_present = set()
+    if src_start and src_end:
+        sheets_present = _build_source_sheets(wb, src_start, src_end, SOURCE_STYLES)
+
+    # ---- Build 'Line Item Guide' (with View Source Data column) ----
     ws_doc = wb.create_sheet('Line Item Guide')
     ws_doc['A1'] = 'Line Item'
     ws_doc['B1'] = 'What it is'
     ws_doc['C1'] = 'Source'
     ws_doc['D1'] = 'Formula'
     ws_doc['E1'] = 'Notes'
-    for col, w_ in zip('ABCDE', [38, 60, 50, 60, 70]):
+    ws_doc['F1'] = 'View Source Data'
+    for col, w_ in zip('ABCDEF', [38, 60, 50, 60, 70, 28]):
         ws_doc.column_dimensions[col].width = w_
     for c in ws_doc[1]:
         c.font = F_HEAD; c.fill = FILL_HEAD; c.alignment = Alignment(vertical='top')
@@ -297,17 +693,26 @@ def export_pnl(request):
         ws_doc.cell(doc_r, 3, doc.get('source', '')).alignment = Alignment(wrap_text=True, vertical='top')
         ws_doc.cell(doc_r, 4, doc.get('formula', '')).alignment = Alignment(wrap_text=True, vertical='top')
         ws_doc.cell(doc_r, 5, doc.get('notes', '')).alignment = Alignment(wrap_text=True, vertical='top')
+        src_sheet = LINE_ITEM_TO_SOURCE.get(label.strip()) or LINE_ITEM_TO_SOURCE.get(label)
+        if src_sheet and src_sheet in sheets_present:
+            link_cell = ws_doc.cell(doc_r, 6, f'→ {src_sheet}')
+            link_cell.alignment = Alignment(wrap_text=True, vertical='top')
+            _set_internal_link(link_cell, src_sheet, 'A1', link_font=F_LINK)
+        else:
+            ws_doc.cell(doc_r, 6, '— (no source export)').alignment = Alignment(wrap_text=True, vertical='top')
         ws_doc.row_dimensions[doc_r].height = 48
         for c in ws_doc[doc_r]: c.border = BORDER
         doc_row_for_label[label.strip()] = doc_r
         doc_r += 1
+    ws_doc.freeze_panes = 'A2'
 
     def link_label_cell(cell, label):
-        """If the label has a doc entry, make it a hyperlink to that doc row."""
+        """Make P&L line label a working hyperlink → Line Item Guide row.
+        Uses explicit Hyperlink object so Google Sheets honors it (string form
+        was being ignored — that was the 'click goes nowhere' bug)."""
         target_row = doc_row_for_label.get(label.strip())
         if target_row:
-            cell.hyperlink = f"#'Line Item Guide'!A{target_row}"
-            cell.font = F_LINK
+            _set_internal_link(cell, 'Line Item Guide', f'A{target_row}', link_font=F_LINK)
 
     # ---- Sheet 1 — the P&L ----
     if mode == 'monthly' and is_range:
