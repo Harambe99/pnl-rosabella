@@ -241,14 +241,22 @@ def import_settlement(file_obj, filename=''):
     duplicate_merges = 0
     unknown_types = {}
 
-    # Fields the upsert path will refresh on a pre-existing row. Lets old imports
-    # backfill the new shipping-component columns without losing the row's other state.
+    # Fields the upsert path will refresh on a pre-existing row. ALL numeric
+    # fields go here so a re-upload of a fresher settlement file overwrites
+    # stale values (previously this list was shipping-only, which caused
+    # affiliate_total + every other fee field to silently NOT update on
+    # re-import — e.g. May affiliate stuck at an old value).
     UPSERT_FIELDS = [
+        'referral_fee', 'affiliate_total', 'campaign_fee', 'refund_admin',
+        'fbt_fee', 'fbt_reimb', 'shipping', 'tt_ship_net',
         'tt_shop_shipping_incentive', 'shipping_fee_subsidy',
         'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
-        'customer_paid_shipping_refund', 'tt_ship_net', 'shipping',
-        'fbt_fee', 'fbt_reimb',
-        'cofunded_promo_campaign_fee', 'seller_shipping_fee_discount',
+        'customer_paid_shipping_refund',
+        'cofunded_promo', 'cofunded_promo_campaign_fee',
+        'seller_shipping_fee_discount', 'refund_total',
+        'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
+        'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
+        'quantity',
     ]
 
     # Numeric fields to sum when the same key appears more than once in the file.
