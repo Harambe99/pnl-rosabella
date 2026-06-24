@@ -10,7 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from django.db.models import Q
 from openpyxl.utils import get_column_letter
-from openpyxl.styles import Alignment
+from openpyxl.styles import Alignment, Font
 from .models import (COGSItem, MonthlyInput, ImportLog, MonthlyInputAudit,
                      AdLedgerDay, AdLedgerConfig, AgencyPromoTag, AgencyInvoice,
                      AdTransaction, Order, SettlementRow, SellerShipmentCost,
@@ -346,39 +346,77 @@ def _build_source_sheets(wb, start_date, end_date, styles):
         ws.row_dimensions[1].height = 28
 
     # --- Source — Manage Orders ---  (skipped for ranges >2 months — memory)
+    # Mirrors aggregator COGS rule: Canceled orders are EXCLUDED from P&L COGS
+    # unless they have a matching FBT fulfillment fee row (= shipped before
+    # cancel). Pre-ship cancellations get a red COGS cell + 'No' in the new
+    # 'Counted in P&L COGS?' column. P&L COGS subtotal ties exactly to the P&L.
     o_cols = ['Order Created Date', 'Order ID', 'SKU ID', 'Status', 'Quantity',
-              'Gross Sales', 'Seller Discount (Promos)', 'COGS']
-    o_widths = [16, 22, 22, 14, 9, 14, 16, 12]
+              'Gross Sales', 'Seller Discount (Promos)', 'COGS', 'Counted in P&L COGS?']
+    o_widths = [16, 22, 22, 14, 9, 14, 16, 12, 18]
     o_rows = []
+    shipped_canceled_ids = set()
     if BIG_SHEETS_ENABLED:
         o_qs = Order.objects.filter(
             created_date__gte=start_date, created_date__lte=end_date
         ).values_list('created_date', 'order_id', 'sku_id', 'status', 'quantity',
                       'gross_sale', 'seller_discount', 'cogs').order_by('created_date', 'order_id')
         o_rows = list(o_qs)
+        # Order IDs that DID ship (have an FBT fulfillment fee row) — these
+        # Canceled rows still count in P&L COGS. Anything Canceled NOT here
+        # is a pre-ship cancellation and is excluded from P&L COGS.
+        shipped_canceled_ids = set(SettlementRow.objects.filter(
+            row_type='Order', fbt_fee__lt=0,
+        ).values_list('order_id', flat=True))
     if o_rows:
         ws = wb.create_sheet('Source — Manage Orders')
         _write_header(ws, o_cols, o_widths)
+        F_RED = Font(color='C0392B', size=11)
+        F_RED_BOLD = Font(color='C0392B', size=11, bold=True)
         r = 2; current_month = None
-        totals = [Decimal('0')] * 3  # gross, disc, cogs
+        total_gross = total_disc = total_cogs = Decimal('0')
+        total_cogs_counted = Decimal('0')
+        total_cogs_excluded = Decimal('0')
         for od, oid, sku, status, qty, gross, disc, cogs in o_rows:
             mkey = (od.year, od.month)
             if mkey != current_month:
                 _section_header(ws, r, od.strftime('%B %Y').upper(), len(o_cols))
                 r += 1
                 current_month = mkey
+            is_canceled = (status or '').strip().lower() == 'canceled'
+            counted = (not is_canceled) or (oid in shipped_canceled_ids)
             ws.cell(r, 1, od).number_format = DATE_FMT
             ws.cell(r, 2, oid); ws.cell(r, 3, sku); ws.cell(r, 4, status); ws.cell(r, 5, qty or 0)
             ws.cell(r, 6, float(gross or 0)).number_format = DOLLAR
             ws.cell(r, 7, float(disc or 0)).number_format = DOLLAR
-            ws.cell(r, 8, float(cogs or 0)).number_format = DOLLAR
-            totals[0] += gross or Decimal('0'); totals[1] += disc or Decimal('0'); totals[2] += cogs or Decimal('0')
+            cogs_cell = ws.cell(r, 8, float(cogs or 0)); cogs_cell.number_format = DOLLAR
+            if not counted:
+                cogs_cell.font = F_RED  # visually flag: not deducted from P&L
+            ws.cell(r, 9, 'Yes' if counted else 'No').alignment = Alignment(horizontal='center')
+            total_gross += gross or Decimal('0')
+            total_disc += disc or Decimal('0')
+            total_cogs += cogs or Decimal('0')
+            if counted:
+                total_cogs_counted += cogs or Decimal('0')
+            else:
+                total_cogs_excluded += cogs or Decimal('0')
             r += 1
-        # Grand total row
-        ws.cell(r, 1, 'GRAND TOTAL').font = F_TOTAL
-        for col, val in zip([6, 7, 8], totals):
+        # GRAND TOTAL — all orders (raw)
+        ws.cell(r, 1, 'GRAND TOTAL (all orders)').font = F_TOTAL
+        for col, val in zip([6, 7, 8], [total_gross, total_disc, total_cogs]):
             c = ws.cell(r, col, float(val)); c.number_format = DOLLAR
             c.font = F_TOTAL; c.fill = FILL_TOTAL
+        r += 1
+        # P&L COGS subtotal — excludes pre-ship cancellations (red rows above)
+        ws.cell(r, 1, 'P&L COGS (excludes pre-ship cancellations)').font = F_TOTAL
+        c = ws.cell(r, 8, float(total_cogs_counted)); c.number_format = DOLLAR
+        c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.cell(r, 9, 'Sum of Yes').alignment = Alignment(horizontal='center')
+        r += 1
+        # Excluded COGS — pre-ship cancellations (visual context only)
+        ws.cell(r, 1, 'Excluded — pre-ship cancellations').font = F_RED_BOLD
+        c = ws.cell(r, 8, float(total_cogs_excluded)); c.number_format = DOLLAR
+        c.font = F_RED_BOLD
+        ws.cell(r, 9, 'Sum of No').alignment = Alignment(horizontal='center')
         ws.freeze_panes = 'A2'
         created.add('Source — Manage Orders')
 
