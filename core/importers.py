@@ -623,7 +623,8 @@ def import_seller_shipping(file_obj, filename=''):
 
     UPDATE_FIELDS = [
         'order_date', 'shipped_date', 'postage', 'per_pack', 'per_pick',
-        'product_quantity', 'reference_number', 'customer_name', 'source_file',
+        'product_quantity', 'reference_number', 'customer_name',
+        'carrier_service', 'tracking', 'channel_name', 'source_file',
     ]
 
     def flush(c):
