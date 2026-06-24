@@ -671,7 +671,15 @@ def export_pnl(request):
     # ---- Build source sheets FIRST (need their names for the Guide hyperlinks) ----
     sheets_present = set()
     if src_start and src_end:
-        sheets_present = _build_source_sheets(wb, src_start, src_end, SOURCE_STYLES)
+        try:
+            sheets_present = _build_source_sheets(wb, src_start, src_end, SOURCE_STYLES)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            return HttpResponse(
+                f'Source sheet build failed:\n\n{type(e).__name__}: {e}\n\n{tb}',
+                content_type='text/plain', status=500,
+            )
 
     # ---- Build 'Line Item Guide' (with View Source Data column) ----
     ws_doc = wb.create_sheet('Line Item Guide')
