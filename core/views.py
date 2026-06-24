@@ -278,6 +278,15 @@ LINE_ITEM_TO_SOURCE = {
     'Ad Spend — Direct to TikTok (cash)': 'Source — Ad Spend',
     'Less: TBSM Savings': 'Source — Ad Ledger',
     'Less: TT Promo Credits': 'Source — Ad Ledger',
+    # Manual monthly-input lines — no file source, but the Monthly Inputs sheet
+    # lists every value with an empty Reference Link column for the user to paste
+    # Google Sheet URLs explaining where each number came from.
+    'Team Spend': 'Source — Monthly Inputs',
+    'Software & Tools': 'Source — Monthly Inputs',
+    'Other G&A': 'Source — Monthly Inputs',
+    'Monthly Retainers': 'Source — Monthly Inputs',
+    'Outsourced Agency': 'Source — Monthly Inputs',
+    'Off-Platform (1% method)': 'Source — Monthly Inputs',
 }
 
 
@@ -520,6 +529,61 @@ def _build_source_sheets(wb, start_date, end_date, styles):
             c.font = F_TOTAL; c.fill = FILL_TOTAL
         ws.freeze_panes = 'A2'
         created.add('Source — Seller Shipping')
+
+    # --- Source — Monthly Inputs (manual entries: Team Spend, Software, etc.) ---
+    # Rows = line items, columns = one per month + Total + Reference Link.
+    # The Reference Link column is intentionally empty — the user pastes
+    # Google Sheet URLs there after opening in Sheets to explain each value.
+    mi_lines = [
+        ('Team Spend',                'team_spend',         'Payroll, contractors — whoever you pay to operate the business.'),
+        ('Software & Tools',          'software_tools',     'SaaS subscriptions (e.g. monthly tooling stack).'),
+        ('Monthly Retainers',         'monthly_retainers',  'Creator retainers paid monthly.'),
+        ('Outsourced Agency',         'creatify',           'Agency fees (DB field: creatify).'),
+        ('Off-Platform (1% method)',  'off_platform_1pct',  'Estimated 1% commission for off-platform creators.'),
+        ('Other G&A',                 'other_ga',           'Misc admin: legal, accounting, office, etc.'),
+    ]
+    months_set_inputs = {f'{y:04d}-{m:02d}' for y, m in months_in_range}
+    mi_inputs_qs = MonthlyInput.objects.filter(month__in=months_set_inputs).order_by('month')
+    mi_inputs_map = {mi.month: mi for mi in mi_inputs_qs}
+    if mi_inputs_map:
+        month_keys = sorted(months_set_inputs)
+        mi_cols = ['Line Item', 'Description'] + month_keys + ['Total', 'Reference Link (paste Google Sheet URL)']
+        mi_widths = [26, 60] + [14] * len(month_keys) + [14, 50]
+        ws = wb.create_sheet('Source — Monthly Inputs')
+        _write_header(ws, mi_cols, mi_widths)
+        r = 2
+        for label, field, desc in mi_lines:
+            ws.cell(r, 1, label).font = F_TOTAL
+            ws.cell(r, 2, desc).alignment = Alignment(wrap_text=True, vertical='top')
+            line_total = Decimal('0')
+            for j, mkey in enumerate(month_keys, start=3):
+                mi = mi_inputs_map.get(mkey)
+                v = (getattr(mi, field) if mi else None) or Decimal('0')
+                c = ws.cell(r, j, float(v)); c.number_format = DOLLAR
+                line_total += v
+            c = ws.cell(r, 2 + len(month_keys) + 1, float(line_total))
+            c.number_format = DOLLAR; c.font = F_TOTAL; c.fill = FILL_TOTAL
+            # Reference Link column intentionally left blank for user to fill.
+            ws.cell(r, 2 + len(month_keys) + 2, '').alignment = Alignment(wrap_text=True, vertical='top')
+            ws.row_dimensions[r].height = 32
+            r += 1
+        # Column total row
+        ws.cell(r, 1, 'GRAND TOTAL').font = F_TOTAL
+        for j, mkey in enumerate(month_keys, start=3):
+            col_total = Decimal('0')
+            for _, field, _desc in mi_lines:
+                mi = mi_inputs_map.get(mkey)
+                col_total += (getattr(mi, field) if mi else None) or Decimal('0')
+            c = ws.cell(r, j, float(col_total)); c.number_format = DOLLAR
+            c.font = F_TOTAL; c.fill = FILL_TOTAL
+        grand = Decimal('0')
+        for _, field, _desc in mi_lines:
+            for mi in mi_inputs_map.values():
+                grand += (getattr(mi, field) or Decimal('0'))
+        c = ws.cell(r, 2 + len(month_keys) + 1, float(grand))
+        c.number_format = DOLLAR; c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.freeze_panes = 'C2'
+        created.add('Source — Monthly Inputs')
 
     # --- Source — FBT Billing (one row per month) ---
     fbt_cols = ['Month', 'Cost to Ship to FBT', 'FBT Hub Placement Fee', 'FBT Storage Fee',
