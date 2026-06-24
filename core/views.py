@@ -560,7 +560,7 @@ def _build_source_sheets(wb, start_date, end_date, styles):
     cfg = AdLedgerConfig.objects.filter(pk=1).first()
     if cfg and cfg.feed_pnl:
         al_qs = AdLedgerDay.objects.filter(date__gte=start_date, date__lte=end_date).order_by('date')
-        al_list = list(al_qs.values_list('date', 'spend', 'savings_tbsm', 'savings_promo'))
+        al_list = list(al_qs.values_list('date', 'ad_spend', 'savings_tbsm', 'savings_promo'))
         if al_list:
             ws = wb.create_sheet('Source — Ad Ledger')
             _write_header(ws, ['Date', 'Spend', 'TBSM Savings', 'TT Promo Credits'], [12, 14, 14, 16])
@@ -671,15 +671,7 @@ def export_pnl(request):
     # ---- Build source sheets FIRST (need their names for the Guide hyperlinks) ----
     sheets_present = set()
     if src_start and src_end:
-        try:
-            sheets_present = _build_source_sheets(wb, src_start, src_end, SOURCE_STYLES)
-        except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            return HttpResponse(
-                f'Source sheet build failed:\n\n{type(e).__name__}: {e}\n\n{tb}',
-                content_type='text/plain', status=500,
-            )
+        sheets_present = _build_source_sheets(wb, src_start, src_end, SOURCE_STYLES)
 
     # ---- Build 'Line Item Guide' (with View Source Data column) ----
     ws_doc = wb.create_sheet('Line Item Guide')
@@ -768,9 +760,11 @@ def export_pnl(request):
             ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + 1)
         total_col = 2 + len(months) * 2
         ws.merge_cells(start_row=1, start_column=total_col, end_row=1, end_column=total_col + 1)
+        # Uniform per-month widths: every month's $ col = 16, every %NR col = 11.
+        # Same widths apply to the trailing Total range pair so all months look identical.
         ws.column_dimensions['A'].width = 42
         for i in range(2, len(hdr1) + 1):
-            ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 13
+            ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 16 if (i % 2 == 0) else 11
 
         excel_row = 3
         for label, rtype in PNL_ROW_LAYOUT:
