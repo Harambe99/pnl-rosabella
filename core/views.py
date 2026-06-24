@@ -318,6 +318,16 @@ def _build_source_sheets(wb, start_date, end_date, styles):
         cm += 1
         if cm > 12: cm = 1; cy += 1
 
+    # Memory safeguard — Render Standard tier OOMs at ~2GB.
+    # The two heaviest source sheets (Manage Orders + Settlement) carry tens of
+    # thousands of rows per month. For ranges >2 months we skip them to keep
+    # the workbook fits in memory; the Guide tells users to export per-month
+    # for full source data.
+    BIG_SHEETS_ENABLED = len(months_in_range) <= 2
+    skipped_for_size = set()  # passed back so the Guide can explain
+    if not BIG_SHEETS_ENABLED:
+        skipped_for_size.update({'Source — Manage Orders', 'Source — Settlement'})
+
     def _section_header(ws, row, label, n_cols):
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
         c = ws.cell(row, 1, label)
@@ -335,15 +345,17 @@ def _build_source_sheets(wb, start_date, end_date, styles):
             ws.column_dimensions[get_column_letter(i)].width = w
         ws.row_dimensions[1].height = 28
 
-    # --- Source — Manage Orders ---
+    # --- Source — Manage Orders ---  (skipped for ranges >2 months — memory)
     o_cols = ['Order Created Date', 'Order ID', 'SKU ID', 'Status', 'Quantity',
               'Gross Sales', 'Seller Discount (Promos)', 'COGS']
     o_widths = [16, 22, 22, 14, 9, 14, 16, 12]
-    o_qs = Order.objects.filter(
-        created_date__gte=start_date, created_date__lte=end_date
-    ).values_list('created_date', 'order_id', 'sku_id', 'status', 'quantity',
-                  'gross_sale', 'seller_discount', 'cogs').order_by('created_date', 'order_id')
-    o_rows = list(o_qs)
+    o_rows = []
+    if BIG_SHEETS_ENABLED:
+        o_qs = Order.objects.filter(
+            created_date__gte=start_date, created_date__lte=end_date
+        ).values_list('created_date', 'order_id', 'sku_id', 'status', 'quantity',
+                      'gross_sale', 'seller_discount', 'cogs').order_by('created_date', 'order_id')
+        o_rows = list(o_qs)
     if o_rows:
         ws = wb.create_sheet('Source — Manage Orders')
         _write_header(ws, o_cols, o_widths)
@@ -382,19 +394,21 @@ def _build_source_sheets(wb, start_date, end_date, styles):
               'Logistics Reimb', 'FBT Warehouse Service Fee', 'FBT Warehouse Comp',
               'Rebate', 'Unclassified Adjustment']
     s_widths = [16, 14, 22, 18, 22, 6] + [14]*24
-    s_qs = SettlementRow.objects.filter(
-        order_created_date__gte=start_date, order_created_date__lte=end_date
-    ).values_list(
-        'order_created_date', 'statement_date', 'order_id', 'settlement_id', 'row_type', 'quantity',
-        'referral_fee', 'refund_admin', 'campaign_fee', 'affiliate_total',
-        'fbt_fee', 'fbt_reimb', 'shipping', 'tt_shop_shipping_incentive',
-        'shipping_fee_subsidy', 'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
-        'customer_paid_shipping_refund', 'seller_shipping_fee_discount',
-        'cofunded_promo', 'cofunded_promo_campaign_fee', 'refund_total',
-        'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
-        'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
-    ).order_by('order_created_date', 'order_id')
-    s_rows = list(s_qs)
+    s_rows = []
+    if BIG_SHEETS_ENABLED:
+        s_qs = SettlementRow.objects.filter(
+            order_created_date__gte=start_date, order_created_date__lte=end_date
+        ).values_list(
+            'order_created_date', 'statement_date', 'order_id', 'settlement_id', 'row_type', 'quantity',
+            'referral_fee', 'refund_admin', 'campaign_fee', 'affiliate_total',
+            'fbt_fee', 'fbt_reimb', 'shipping', 'tt_shop_shipping_incentive',
+            'shipping_fee_subsidy', 'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
+            'customer_paid_shipping_refund', 'seller_shipping_fee_discount',
+            'cofunded_promo', 'cofunded_promo_campaign_fee', 'refund_total',
+            'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
+            'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
+        ).order_by('order_created_date', 'order_id')
+        s_rows = list(s_qs)
     if s_rows:
         ws = wb.create_sheet('Source — Settlement')
         _write_header(ws, s_cols, s_widths)
@@ -585,7 +599,7 @@ def _build_source_sheets(wb, start_date, end_date, styles):
             ws.freeze_panes = 'A2'
             created.add('Source — Ad Ledger')
 
-    return created
+    return created, skipped_for_size
 
 
 def export_pnl(request):
@@ -670,8 +684,10 @@ def export_pnl(request):
 
     # ---- Build source sheets FIRST (need their names for the Guide hyperlinks) ----
     sheets_present = set()
+    sheets_skipped_size = set()
     if src_start and src_end:
-        sheets_present = _build_source_sheets(wb, src_start, src_end, SOURCE_STYLES)
+        sheets_present, sheets_skipped_size = _build_source_sheets(
+            wb, src_start, src_end, SOURCE_STYLES)
 
     # ---- Build 'Line Item Guide' (with View Source Data column) ----
     ws_doc = wb.create_sheet('Line Item Guide')
@@ -698,6 +714,11 @@ def export_pnl(request):
             link_cell = ws_doc.cell(doc_r, 6, f'→ {src_sheet}')
             link_cell.alignment = Alignment(wrap_text=True, vertical='top')
             _set_internal_link(link_cell, src_sheet, 'A1', link_font=F_LINK)
+        elif src_sheet and src_sheet in sheets_skipped_size:
+            ws_doc.cell(doc_r, 6,
+                'Range too large — export each month individually for raw rows '
+                '(or use a 1-2 month range for full source data).'
+            ).alignment = Alignment(wrap_text=True, vertical='top')
         else:
             ws_doc.cell(doc_r, 6, '— (no source export)').alignment = Alignment(wrap_text=True, vertical='top')
         ws_doc.row_dimensions[doc_r].height = 48
