@@ -38,18 +38,32 @@ def _data_version():
 
 
 def compute_daily_pnl(start_date, end_date, use_cache=True):
-    """Cached entry point. Wraps _compute_daily_pnl_impl with a per-(range,
-    data-version) cache. First call after an upload takes the full 18s; every
-    subsequent dashboard / daily / export load returns in <50ms until the next
-    upload bumps the data version and invalidates the entry."""
+    """Cached + exception-guarded entry point. Wraps _compute_daily_pnl_impl
+    with a per-(range, data-version) cache. If the inner compute raises (DB
+    error, OOM unwind, anything), we log the full traceback and return an
+    empty-but-valid result so the page can still render with zeros instead of
+    a generic 500. The Render logs will show what actually failed."""
     if not use_cache:
-        return _compute_daily_pnl_impl(start_date, end_date)
+        try:
+            return _compute_daily_pnl_impl(start_date, end_date)
+        except Exception:
+            import logging
+            logging.getLogger('core').exception(
+                'compute_daily_pnl crashed for %s..%s', start_date, end_date)
+            return {d: {} for d in date_range(start_date, end_date)}
     from django.core.cache import cache
     key = f'daily_pnl:v{_data_version()}:{start_date.isoformat()}:{end_date.isoformat()}'
     cached = cache.get(key)
     if cached is not None:
         return cached
-    result = _compute_daily_pnl_impl(start_date, end_date)
+    try:
+        result = _compute_daily_pnl_impl(start_date, end_date)
+    except Exception:
+        import logging
+        logging.getLogger('core').exception(
+            'compute_daily_pnl crashed for %s..%s', start_date, end_date)
+        # Return an empty-but-valid skeleton — don't cache it (transient).
+        return {d: {} for d in date_range(start_date, end_date)}
     cache.set(key, result, timeout=60 * 60 * 24)
     return result
 
@@ -86,6 +100,10 @@ def _compute_daily_pnl_impl(start_date, end_date):
     # that it actually shipped). The CASE expression handles that inline.
     from django.db import connection
     with connection.cursor() as cur:
+        # Single CTE-driven aggregation. We use a LEFT JOIN against the
+        # "shipped_canceled" set instead of a correlated IN-subquery so
+        # Postgres uses a hash join (fast) rather than a nested-loop lookup
+        # per row (catastrophic on 200k orders).
         cur.execute(
             '''
             WITH order_stmt AS (
@@ -106,11 +124,12 @@ def _compute_daily_pnl_impl(start_date, end_date):
                 SUM(o.seller_discount)  AS promos,
                 SUM(CASE
                     WHEN LOWER(COALESCE(o.status, '')) <> 'canceled'
-                         OR o.order_id IN (SELECT order_id FROM shipped_canceled)
+                         OR sc.order_id IS NOT NULL
                     THEN o.cogs ELSE 0
                 END) AS cogs
             FROM core_order o
             INNER JOIN order_stmt os ON os.order_id = o.order_id
+            LEFT  JOIN shipped_canceled sc ON sc.order_id = o.order_id
             GROUP BY os.stmt_date
             ''', [start_date, end_date])
         for stmt_d, gross, promos, cogs in cur.fetchall():
