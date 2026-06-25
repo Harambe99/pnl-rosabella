@@ -46,7 +46,7 @@ class Order(models.Model):
 class SettlementRow(models.Model):
     """One row per (Order ID, Settlement ID, Type) from settlement export."""
     order_created_date = models.DateField(db_index=True, null=True)
-    statement_date = models.DateField(null=True)
+    statement_date = models.DateField(db_index=True, null=True)
     order_id = models.CharField(max_length=32, db_index=True)
     settlement_id = models.CharField(max_length=32)
     row_type = models.CharField(max_length=64, db_index=True)
@@ -87,6 +87,10 @@ class SettlementRow(models.Model):
         indexes = [
             models.Index(fields=['order_created_date']),
             models.Index(fields=['row_type']),
+            models.Index(fields=['statement_date']),
+            # Composite for the order_stmt_map lookup (filter by row_type='Order'
+            # + statement_date range) used in settlement-date attribution.
+            models.Index(fields=['row_type', 'statement_date']),
         ]
 
 

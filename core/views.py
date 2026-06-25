@@ -355,27 +355,43 @@ def _build_source_sheets(wb, start_date, end_date, styles):
         ws.row_dimensions[1].height = 28
 
     # --- Source — Manage Orders ---  (skipped for ranges >2 months — memory)
-    # Mirrors aggregator COGS rule: Canceled orders are EXCLUDED from P&L COGS
-    # unless they have a matching FBT fulfillment fee row (= shipped before
-    # cancel). Pre-ship cancellations get a red COGS cell + 'No' in the new
-    # 'Counted in P&L COGS?' column. P&L COGS subtotal ties exactly to the P&L.
-    o_cols = ['Order Created Date', 'Order ID', 'SKU ID', 'Status', 'Quantity',
+    # Attribution: orders are grouped by their Settlement statement_date (the
+    # day TikTok cleared the order for payout), matching the P&L methodology.
+    # Orders without a settled 'Order' row in range are excluded — they haven't
+    # settled yet and don't appear in the P&L.
+    # COGS rule unchanged: Canceled-pre-ship excluded (red), Canceled-shipped
+    # counted (it incurred a real fulfillment cost). P&L COGS subtotal ties.
+    from django.db.models import Min as _Min
+    o_cols = ['Statement Date', 'Order Created Date', 'Order ID', 'SKU ID', 'Status', 'Quantity',
               'Gross Sales', 'Seller Discount (Promos)', 'COGS', 'Counted in P&L COGS?']
-    o_widths = [16, 22, 22, 14, 9, 14, 16, 12, 18]
+    o_widths = [14, 16, 22, 22, 14, 9, 14, 16, 12, 18]
     o_rows = []
     shipped_canceled_ids = set()
     if BIG_SHEETS_ENABLED:
-        o_qs = Order.objects.filter(
-            created_date__gte=start_date, created_date__lte=end_date
-        ).values_list('created_date', 'order_id', 'sku_id', 'status', 'quantity',
-                      'gross_sale', 'seller_discount', 'cogs').order_by('created_date', 'order_id')
-        o_rows = list(o_qs)
-        # Order IDs that DID ship (have an FBT fulfillment fee row) — these
-        # Canceled rows still count in P&L COGS. Anything Canceled NOT here
-        # is a pre-ship cancellation and is excluded from P&L COGS.
-        shipped_canceled_ids = set(SettlementRow.objects.filter(
-            row_type='Order', fbt_fee__lt=0,
-        ).values_list('order_id', flat=True))
+        # Map order_id -> statement_date for orders settled in range
+        order_stmt_qs = SettlementRow.objects.filter(
+            row_type='Order',
+            statement_date__gte=start_date,
+            statement_date__lte=end_date,
+        ).values('order_id').annotate(stmt=_Min('statement_date'))
+        order_stmt_map = {r['order_id']: r['stmt'] for r in order_stmt_qs}
+
+        if order_stmt_map:
+            raw_qs = Order.objects.filter(
+                order_id__in=order_stmt_map.keys()
+            ).values_list(
+                'order_id', 'created_date', 'sku_id', 'status', 'quantity',
+                'gross_sale', 'seller_discount', 'cogs')
+            for oid, cd, sku, status, qty, gross, disc, cogs in raw_qs:
+                sd = order_stmt_map.get(oid)
+                if sd:
+                    o_rows.append((sd, cd, oid, sku, status, qty, gross, disc, cogs))
+            # Sort by statement_date then order_id so monthly sections are contiguous
+            o_rows.sort(key=lambda x: (x[0], x[2]))
+
+            shipped_canceled_ids = set(SettlementRow.objects.filter(
+                row_type='Order', fbt_fee__lt=0,
+            ).values_list('order_id', flat=True))
     if o_rows:
         ws = wb.create_sheet('Source — Manage Orders')
         _write_header(ws, o_cols, o_widths)
@@ -385,22 +401,23 @@ def _build_source_sheets(wb, start_date, end_date, styles):
         total_gross = total_disc = total_cogs = Decimal('0')
         total_cogs_counted = Decimal('0')
         total_cogs_excluded = Decimal('0')
-        for od, oid, sku, status, qty, gross, disc, cogs in o_rows:
-            mkey = (od.year, od.month)
+        for sd, cd, oid, sku, status, qty, gross, disc, cogs in o_rows:
+            mkey = (sd.year, sd.month)
             if mkey != current_month:
-                _section_header(ws, r, od.strftime('%B %Y').upper(), len(o_cols))
+                _section_header(ws, r, sd.strftime('%B %Y').upper() + ' (by Statement Date)', len(o_cols))
                 r += 1
                 current_month = mkey
             is_canceled = (status or '').strip().lower() == 'canceled'
             counted = (not is_canceled) or (oid in shipped_canceled_ids)
-            ws.cell(r, 1, od).number_format = DATE_FMT
-            ws.cell(r, 2, oid); ws.cell(r, 3, sku); ws.cell(r, 4, status); ws.cell(r, 5, qty or 0)
-            ws.cell(r, 6, float(gross or 0)).number_format = DOLLAR
-            ws.cell(r, 7, float(disc or 0)).number_format = DOLLAR
-            cogs_cell = ws.cell(r, 8, float(cogs or 0)); cogs_cell.number_format = DOLLAR
+            ws.cell(r, 1, sd).number_format = DATE_FMT
+            if cd: ws.cell(r, 2, cd).number_format = DATE_FMT
+            ws.cell(r, 3, oid); ws.cell(r, 4, sku); ws.cell(r, 5, status); ws.cell(r, 6, qty or 0)
+            ws.cell(r, 7, float(gross or 0)).number_format = DOLLAR
+            ws.cell(r, 8, float(disc or 0)).number_format = DOLLAR
+            cogs_cell = ws.cell(r, 9, float(cogs or 0)); cogs_cell.number_format = DOLLAR
             if not counted:
                 cogs_cell.font = F_RED  # visually flag: not deducted from P&L
-            ws.cell(r, 9, 'Yes' if counted else 'No').alignment = Alignment(horizontal='center')
+            ws.cell(r, 10, 'Yes' if counted else 'No').alignment = Alignment(horizontal='center')
             total_gross += gross or Decimal('0')
             total_disc += disc or Decimal('0')
             total_cogs += cogs or Decimal('0')
@@ -409,28 +426,28 @@ def _build_source_sheets(wb, start_date, end_date, styles):
             else:
                 total_cogs_excluded += cogs or Decimal('0')
             r += 1
-        # GRAND TOTAL — all orders (raw)
+        # GRAND TOTAL — all orders (raw). $ columns now at 7/8/9.
         ws.cell(r, 1, 'GRAND TOTAL (all orders)').font = F_TOTAL
-        for col, val in zip([6, 7, 8], [total_gross, total_disc, total_cogs]):
+        for col, val in zip([7, 8, 9], [total_gross, total_disc, total_cogs]):
             c = ws.cell(r, col, float(val)); c.number_format = DOLLAR
             c.font = F_TOTAL; c.fill = FILL_TOTAL
         r += 1
         # P&L COGS subtotal — excludes pre-ship cancellations (red rows above)
         ws.cell(r, 1, 'P&L COGS (excludes pre-ship cancellations)').font = F_TOTAL
-        c = ws.cell(r, 8, float(total_cogs_counted)); c.number_format = DOLLAR
+        c = ws.cell(r, 9, float(total_cogs_counted)); c.number_format = DOLLAR
         c.font = F_TOTAL; c.fill = FILL_TOTAL
-        ws.cell(r, 9, 'Sum of Yes').alignment = Alignment(horizontal='center')
+        ws.cell(r, 10, 'Sum of Yes').alignment = Alignment(horizontal='center')
         r += 1
         # Excluded COGS — pre-ship cancellations (visual context only)
         ws.cell(r, 1, 'Excluded — pre-ship cancellations').font = F_RED_BOLD
-        c = ws.cell(r, 8, float(total_cogs_excluded)); c.number_format = DOLLAR
+        c = ws.cell(r, 9, float(total_cogs_excluded)); c.number_format = DOLLAR
         c.font = F_RED_BOLD
-        ws.cell(r, 9, 'Sum of No').alignment = Alignment(horizontal='center')
+        ws.cell(r, 10, 'Sum of No').alignment = Alignment(horizontal='center')
         ws.freeze_panes = 'A2'
         created.add('Source — Manage Orders')
 
-    # --- Source — Settlement ---
-    s_cols = ['Order Created Date', 'Statement Date', 'Order/Adjustment ID', 'Statement ID', 'Type', 'Qty',
+    # --- Source — Settlement --- (filtered + sorted by Statement Date)
+    s_cols = ['Statement Date', 'Order Created Date', 'Order/Adjustment ID', 'Statement ID', 'Type', 'Qty',
               'Referral Fee', 'Refund Admin Fee', 'Campaign Service Fee',
               'Affiliate Total', 'FBT Fulfillment Fee', 'FBT Fulfillment Reimb',
               'Shipping (parent)', 'TT Shop Shipping Incentive', 'Shipping Fee Subsidy',
@@ -440,13 +457,13 @@ def _build_source_sheets(wb, start_date, end_date, styles):
               'Refund Total', 'Chargeback', 'Violation Fee', 'TT Shop Reimb',
               'Logistics Reimb', 'FBT Warehouse Service Fee', 'FBT Warehouse Comp',
               'Rebate', 'Unclassified Adjustment']
-    s_widths = [16, 14, 22, 18, 22, 6] + [14]*24
+    s_widths = [14, 16, 22, 18, 22, 6] + [14]*24
     s_rows = []
     if BIG_SHEETS_ENABLED:
         s_qs = SettlementRow.objects.filter(
-            order_created_date__gte=start_date, order_created_date__lte=end_date
+            statement_date__gte=start_date, statement_date__lte=end_date
         ).values_list(
-            'order_created_date', 'statement_date', 'order_id', 'settlement_id', 'row_type', 'quantity',
+            'statement_date', 'order_created_date', 'order_id', 'settlement_id', 'row_type', 'quantity',
             'referral_fee', 'refund_admin', 'campaign_fee', 'affiliate_total',
             'fbt_fee', 'fbt_reimb', 'shipping', 'tt_shop_shipping_incentive',
             'shipping_fee_subsidy', 'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
@@ -454,7 +471,7 @@ def _build_source_sheets(wb, start_date, end_date, styles):
             'cofunded_promo', 'cofunded_promo_campaign_fee', 'refund_total',
             'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
             'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
-        ).order_by('order_created_date', 'order_id')
+        ).order_by('statement_date', 'order_id')
         s_rows = list(s_qs)
     if s_rows:
         ws = wb.create_sheet('Source — Settlement')
@@ -463,10 +480,10 @@ def _build_source_sheets(wb, start_date, end_date, styles):
         n_money_cols = len(s_cols) - 6  # all cols after qty are money
         totals = [Decimal('0')] * n_money_cols
         for row_tuple in s_rows:
-            od = row_tuple[0]
-            mkey = (od.year, od.month) if od else None
+            sd = row_tuple[0]  # statement_date (primary sort)
+            mkey = (sd.year, sd.month) if sd else None
             if mkey and mkey != current_month:
-                _section_header(ws, r, od.strftime('%B %Y').upper(), len(s_cols))
+                _section_header(ws, r, sd.strftime('%B %Y').upper() + ' (by Statement Date)', len(s_cols))
                 r += 1
                 current_month = mkey
             for i, v in enumerate(row_tuple, start=1):
@@ -488,31 +505,31 @@ def _build_source_sheets(wb, start_date, end_date, styles):
         ws.freeze_panes = 'A2'
         created.add('Source — Settlement')
 
-    # --- Source — Seller Shipping ---
-    sh_cols = ['Order Date', 'Shipped Date', 'Reference Number', 'Customer', 'Carrier',
+    # --- Source — Seller Shipping --- (filtered + sorted by Shipped Date)
+    # P&L attributes Cost to Ship to Customer by shipped_date (per Lindsay
+    # 2026-06-25) — this sheet mirrors that.
+    sh_cols = ['Shipped Date', 'Order Date', 'Reference Number', 'Customer', 'Carrier',
                'Postage', 'Qty', 'Per Pack', 'Per Pick', 'Total']
     sh_widths = [12, 12, 26, 24, 18, 10, 6, 10, 10, 12]
     sh_qs = SellerShipmentCost.objects.filter(
-        Q(order_date__gte=start_date, order_date__lte=end_date)
-        | Q(order_date__isnull=True, shipped_date__gte=start_date, shipped_date__lte=end_date)
-    ).order_by('order_date', 'shipped_date')
+        shipped_date__gte=start_date, shipped_date__lte=end_date,
+    ).order_by('shipped_date')
     sh_list = list(sh_qs.values_list(
-        'order_date', 'shipped_date', 'reference_number', 'customer_name',
+        'shipped_date', 'order_date', 'reference_number', 'customer_name',
         'carrier_service', 'postage', 'product_quantity', 'per_pack', 'per_pick'))
     if sh_list:
         ws = wb.create_sheet('Source — Seller Shipping')
         _write_header(ws, sh_cols, sh_widths)
         r = 2; current_month = None
         t_postage = t_pack = t_pick = t_total = Decimal('0')
-        for od, sd, ref, cust, carr, postage, qty, per_pack, per_pick in sh_list:
-            anchor = od or sd
-            mkey = (anchor.year, anchor.month) if anchor else None
+        for sd, od, ref, cust, carr, postage, qty, per_pack, per_pick in sh_list:
+            mkey = (sd.year, sd.month) if sd else None
             if mkey and mkey != current_month:
-                _section_header(ws, r, anchor.strftime('%B %Y').upper(), len(sh_cols))
+                _section_header(ws, r, sd.strftime('%B %Y').upper() + ' (by Shipped Date)', len(sh_cols))
                 r += 1
                 current_month = mkey
-            if od: ws.cell(r, 1, od).number_format = DATE_FMT
-            if sd: ws.cell(r, 2, sd).number_format = DATE_FMT
+            if sd: ws.cell(r, 1, sd).number_format = DATE_FMT
+            if od: ws.cell(r, 2, od).number_format = DATE_FMT
             ws.cell(r, 3, ref or ''); ws.cell(r, 4, cust or ''); ws.cell(r, 5, carr or '')
             ws.cell(r, 6, float(postage or 0)).number_format = DOLLAR
             ws.cell(r, 7, qty or 0)

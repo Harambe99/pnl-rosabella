@@ -26,47 +26,64 @@ def date_range(d1, d2):
 
 
 def compute_daily_pnl(start_date, end_date):
-    """Returns a dict {date: {row_label: amount}} for the given range."""
+    """Returns a dict {date: {row_label: amount}} for the given range.
+
+    Attribution methodology (settlement-date basis, per Lindsay + Jack 2026-06-25):
+      • Gross Sales / Promos / COGS / Refunds → SettlementRow.statement_date
+        of the order's primary 'Order' settlement row (joined via order_id).
+      • All TikTok Shop fees (Affiliate, Referral, FBT fee, Co-funded promo, etc.)
+        → SettlementRow.statement_date.
+      • Cost to Ship to Customer → SellerShipmentCost.shipped_date.
+      • Ad Spend / GMV reference / Ad Ledger → unchanged (already daily).
+      • Monthly Inputs (manual entries, FBT Billing) → unchanged (flat-spread).
+
+    Orders without a settled 'Order' row in range are NOT counted — they haven't
+    cleared TikTok's settlement window yet. They'll appear once they settle and
+    a fresh settlement file is uploaded.
+    """
     dates = date_range(start_date, end_date)
     result = {d: {} for d in dates}
 
-    # Orders → Gross Sales + Less: Promos & Discounts (include ALL statuses).
-    # Canceled orders also generate Settlement refund rows; including their gross
-    # and discount here lets the refund line cancel them out cleanly, matching
-    # TikTok's Reports tab view of Net Sales. Excluding canceled (the old behavior)
-    # caused a double-count where the refund hit P&L with no offsetting gross.
-    o_qs = Order.objects.filter(
-        created_date__gte=start_date, created_date__lte=end_date
-    ).values('created_date').annotate(
-        gross=Sum('gross_sale'),
-        disc=Sum('seller_discount'),
-    )
-    for r in o_qs:
-        d = r['created_date']
-        result[d]['Gross Sales'] = r['gross'] or ZERO
-        result[d]['Less: Promos & Discounts'] = r['disc'] or ZERO
+    # Build {order_id: statement_date} from primary 'Order'-type settlement rows
+    # in our range. Use earliest statement_date when an order has multiple rows.
+    from django.db.models import Min
+    order_stmt_qs = SettlementRow.objects.filter(
+        row_type='Order',
+        statement_date__gte=start_date,
+        statement_date__lte=end_date,
+    ).values('order_id').annotate(stmt=Min('statement_date'))
+    order_stmt_map = {r['order_id']: r['stmt'] for r in order_stmt_qs}
 
-    # COGS → include non-canceled orders, PLUS canceled orders that actually
-    # shipped (real fulfillment cost was incurred). Signal for "shipped" is the
-    # presence of an FBT fulfillment fee row for that order in Settlement.
-    # Pre-ship cancellations have no FBT fee → COGS correctly excluded.
+    # Orders → Gross Sales + Less: Promos & Discounts, attributed by their
+    # settlement statement_date (not creation date). Include ALL statuses;
+    # Canceled orders that generate refund rows offset cleanly on the same day.
     shipped_canceled_ids = set(SettlementRow.objects.filter(
         row_type='Order', fbt_fee__lt=0,
     ).values_list('order_id', flat=True))
-    cogs_qs = Order.objects.filter(
-        created_date__gte=start_date, created_date__lte=end_date,
-    ).filter(
-        ~Q(status__iexact='Canceled')
-        | Q(status__iexact='Canceled', order_id__in=shipped_canceled_ids)
-    ).values('created_date').annotate(cogs=Sum('cogs'))
-    for r in cogs_qs:
-        d = r['created_date']
-        result[d]['COGS'] = -(r['cogs'] or ZERO)
 
-    # Settlement aggregated by order_created_date
+    o_qs = Order.objects.filter(
+        order_id__in=order_stmt_map.keys(),
+    ).values('order_id', 'gross_sale', 'seller_discount', 'cogs', 'status')
+
+    for o in o_qs:
+        d = order_stmt_map.get(o['order_id'])
+        if d not in result:
+            continue
+        row = result[d]
+        row['Gross Sales'] = row.get('Gross Sales', ZERO) + (o['gross_sale'] or ZERO)
+        row['Less: Promos & Discounts'] = row.get('Less: Promos & Discounts', ZERO) + (o['seller_discount'] or ZERO)
+        # COGS — include non-canceled orders, plus Canceled-but-shipped (FBT fee
+        # signal). Pre-ship cancellations excluded (no real fulfillment cost).
+        is_canceled = (o['status'] or '').strip().lower() == 'canceled'
+        if (not is_canceled) or (o['order_id'] in shipped_canceled_ids):
+            row['COGS'] = row.get('COGS', ZERO) - (o['cogs'] or ZERO)
+
+    # Settlement aggregations — group by statement_date (was order_created_date).
+    # Every settlement row carries its own statement_date so refunds, fees, and
+    # adjustments naturally land on the day TikTok processed them.
     s_qs = SettlementRow.objects.filter(
-        order_created_date__gte=start_date, order_created_date__lte=end_date
-    ).values('order_created_date').annotate(
+        statement_date__gte=start_date, statement_date__lte=end_date
+    ).values('statement_date').annotate(
         referral=Sum('referral_fee'),
         affiliate=Sum('affiliate_total'),
         campaign=Sum('campaign_fee'),
@@ -93,7 +110,7 @@ def compute_daily_pnl(start_date, end_date):
         unclassified=Sum('unclassified'),
     )
     for r in s_qs:
-        d = r['order_created_date']
+        d = r['statement_date']
         if not d: continue
         result[d]['   Referral Fee'] = r['referral'] or ZERO
         result[d]['   Platform (Affiliate Commission)'] = r['affiliate'] or ZERO
@@ -178,20 +195,16 @@ def compute_daily_pnl(start_date, end_date):
 
     # Seller-shipping per-day override for Cost to Ship to Customer.
     # Cost = postage + per_pack + per_pick (the full 3PL line item per shipment).
-    # Attribution: order_date when present (accrual-consistent with the rest of
-    # the P&L), falling back to shipped_date for legacy rows without order_date.
-    # When any shipment rows exist for a month, the daily totals override the
-    # flat-spread from Monthly Inputs for that month.
-    from django.db.models.functions import Coalesce
+    # Attribution: shipped_date (the day Jetpack actually shipped the package).
+    # Per Lindsay 2026-06-25 — shipping costs land on the day the order was
+    # shipped, not the day it was created. This is internally consistent with
+    # the Settlement-date methodology elsewhere on the P&L.
     ship_qs = SellerShipmentCost.objects.filter(
-        Q(order_date__gte=start_date, order_date__lte=end_date)
-        | Q(order_date__isnull=True, shipped_date__gte=start_date, shipped_date__lte=end_date)
-    ).annotate(
-        attr_date=Coalesce('order_date', 'shipped_date'),
-    ).values('attr_date').annotate(
+        shipped_date__gte=start_date, shipped_date__lte=end_date,
+    ).values('shipped_date').annotate(
         total=Sum(F('postage') + F('per_pack') + F('per_pick')),
     )
-    daily_ship = {r['attr_date']: r['total'] or ZERO for r in ship_qs}
+    daily_ship = {r['shipped_date']: r['total'] or ZERO for r in ship_qs}
     months_with_ship = {f'{d.year:04d}-{d.month:02d}' for d in daily_ship.keys()}
     for d in dates:
         mkey = f'{d.year:04d}-{d.month:02d}'
