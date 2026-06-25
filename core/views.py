@@ -1189,7 +1189,21 @@ def ad_discounts(request):
 
 
 def health(request):
-    return HttpResponse('OK')
+    """Liveness + DB connectivity probe. Returns 200 only if Postgres is
+    actually reachable. Render's automatic healthcheck calls this every few
+    seconds — when a worker's DB connection has died, it returns 503 and
+    Render replaces the worker. Cheap query (~1ms), safe to hit constantly."""
+    import logging
+    log = logging.getLogger('core')
+    try:
+        from django.db import connection
+        with connection.cursor() as c:
+            c.execute('SELECT 1')
+            c.fetchone()
+        return HttpResponse('OK')
+    except Exception as e:
+        log.error('Healthcheck failed: %s', e, exc_info=True)
+        return HttpResponse(f'DB ERROR: {e}', status=503)
 
 
 @csrf_exempt

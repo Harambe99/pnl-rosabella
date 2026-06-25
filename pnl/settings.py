@@ -87,3 +87,57 @@ APP_PASSWORD = os.environ.get('APP_PASSWORD', 'Rosabella26')
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800
 FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800
+
+# In-memory cache for compute_daily_pnl results. Local-memory backend is fine
+# since we run a small number of workers and invalidate by import-version key.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'pnl-cache',
+        'TIMEOUT': 60 * 60 * 24,  # 24h max — invalidation is by version key
+        'OPTIONS': {'MAX_ENTRIES': 512},
+    }
+}
+
+# Logging — every exception that turns into a 500 is now captured to stdout
+# with a full Python traceback. Render's Logs tab surfaces these so we can
+# diagnose intermittent failures instead of guessing at a generic 500 page.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name} ({module}): {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        # Show every 4xx/5xx with a full traceback (Django logs to django.request
+        # at WARNING/ERROR for client + server errors respectively).
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'core': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}

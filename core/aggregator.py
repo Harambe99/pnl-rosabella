@@ -25,7 +25,36 @@ def date_range(d1, d2):
     return out
 
 
-def compute_daily_pnl(start_date, end_date):
+def _data_version():
+    """Latest ImportLog.id — used as a cache invalidation key.
+    Every successful import increments this, auto-busting stale daily-PnL
+    cache entries the next time the dashboard / daily / export hits us.
+    Returns 0 if no imports yet (fresh DB) so first compute still caches."""
+    try:
+        from .models import ImportLog
+        return ImportLog.objects.order_by('-id').values_list('id', flat=True).first() or 0
+    except Exception:
+        return 0
+
+
+def compute_daily_pnl(start_date, end_date, use_cache=True):
+    """Cached entry point. Wraps _compute_daily_pnl_impl with a per-(range,
+    data-version) cache. First call after an upload takes the full 18s; every
+    subsequent dashboard / daily / export load returns in <50ms until the next
+    upload bumps the data version and invalidates the entry."""
+    if not use_cache:
+        return _compute_daily_pnl_impl(start_date, end_date)
+    from django.core.cache import cache
+    key = f'daily_pnl:v{_data_version()}:{start_date.isoformat()}:{end_date.isoformat()}'
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    result = _compute_daily_pnl_impl(start_date, end_date)
+    cache.set(key, result, timeout=60 * 60 * 24)
+    return result
+
+
+def _compute_daily_pnl_impl(start_date, end_date):
     """Returns a dict {date: {row_label: amount}} for the given range.
 
     Attribution methodology (settlement-date basis, per Lindsay + Jack 2026-06-25):
