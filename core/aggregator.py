@@ -73,39 +73,53 @@ def _compute_daily_pnl_impl(start_date, end_date):
     dates = date_range(start_date, end_date)
     result = {d: {} for d in dates}
 
-    # Build {order_id: statement_date} from primary 'Order'-type settlement rows
-    # in our range. Use earliest statement_date when an order has multiple rows.
-    from django.db.models import Min
-    order_stmt_qs = SettlementRow.objects.filter(
-        row_type='Order',
-        statement_date__gte=start_date,
-        statement_date__lte=end_date,
-    ).values('order_id').annotate(stmt=Min('statement_date'))
-    order_stmt_map = {r['order_id']: r['stmt'] for r in order_stmt_qs}
-
-    # Orders → Gross Sales + Less: Promos & Discounts, attributed by their
-    # settlement statement_date (not creation date). Include ALL statuses;
-    # Canceled orders that generate refund rows offset cleanly on the same day.
-    shipped_canceled_ids = set(SettlementRow.objects.filter(
-        row_type='Order', fbt_fee__lt=0,
-    ).values_list('order_id', flat=True))
-
-    o_qs = Order.objects.filter(
-        order_id__in=order_stmt_map.keys(),
-    ).values('order_id', 'gross_sale', 'seller_discount', 'cogs', 'status')
-
-    for o in o_qs:
-        d = order_stmt_map.get(o['order_id'])
-        if d not in result:
-            continue
-        row = result[d]
-        row['Gross Sales'] = row.get('Gross Sales', ZERO) + (o['gross_sale'] or ZERO)
-        row['Less: Promos & Discounts'] = row.get('Less: Promos & Discounts', ZERO) + (o['seller_discount'] or ZERO)
-        # COGS — include non-canceled orders, plus Canceled-but-shipped (FBT fee
-        # signal). Pre-ship cancellations excluded (no real fulfillment cost).
-        is_canceled = (o['status'] or '').strip().lower() == 'canceled'
-        if (not is_canceled) or (o['order_id'] in shipped_canceled_ids):
-            row['COGS'] = row.get('COGS', ZERO) - (o['cogs'] or ZERO)
+    # Gross Sales + Promos & Discounts + COGS — aggregated entirely at the DB
+    # level via a single JOIN between Order and SettlementRow. Previously we
+    # built an in-memory {order_id: statement_date} dict of ~200k entries and
+    # then materialized ~200k Order rows into Python, which caused OOM kills
+    # on the Standard tier when the year was data-heavy. The raw SQL below
+    # never materializes order-level rows in Python — Postgres does the join,
+    # the GROUP BY, and the SUM, then returns one row per statement_date.
+    #
+    # COGS exclusion rule (pre-ship cancellations): a Canceled order is only
+    # included in COGS when an FBT fulfillment fee row exists for it (signal
+    # that it actually shipped). The CASE expression handles that inline.
+    from django.db import connection
+    with connection.cursor() as cur:
+        cur.execute(
+            '''
+            WITH order_stmt AS (
+                SELECT order_id, MIN(statement_date) AS stmt_date
+                FROM core_settlementrow
+                WHERE row_type = 'Order'
+                  AND statement_date BETWEEN %s AND %s
+                GROUP BY order_id
+            ),
+            shipped_canceled AS (
+                SELECT DISTINCT order_id
+                FROM core_settlementrow
+                WHERE row_type = 'Order' AND fbt_fee < 0
+            )
+            SELECT
+                os.stmt_date,
+                SUM(o.gross_sale)       AS gross,
+                SUM(o.seller_discount)  AS promos,
+                SUM(CASE
+                    WHEN LOWER(COALESCE(o.status, '')) <> 'canceled'
+                         OR o.order_id IN (SELECT order_id FROM shipped_canceled)
+                    THEN o.cogs ELSE 0
+                END) AS cogs
+            FROM core_order o
+            INNER JOIN order_stmt os ON os.order_id = o.order_id
+            GROUP BY os.stmt_date
+            ''', [start_date, end_date])
+        for stmt_d, gross, promos, cogs in cur.fetchall():
+            if stmt_d not in result:
+                continue
+            row = result[stmt_d]
+            row['Gross Sales'] = Decimal(gross or 0)
+            row['Less: Promos & Discounts'] = Decimal(promos or 0)
+            row['COGS'] = -Decimal(cogs or 0)
 
     # Settlement aggregations — group by statement_date (was order_created_date).
     # Every settlement row carries its own statement_date so refunds, fees, and
