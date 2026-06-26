@@ -167,6 +167,41 @@ class MonthlyInput(models.Model):
         return self.month
 
 
+class FBTBillingSchedule(models.Model):
+    """Maps a TikTok FBT 'billing period' (services month) to the statement_date
+    on which TikTok actually charged the bill. Populated by uploading the
+    'Payment Cycle' XLSX from Seller Center → Finance.
+
+    The aggregator uses this to attribute the 12 FBT-detail lines (Hub Placement,
+    Storage, Inbound Incidents, Routing Non-Compliance, etc. — sourced from the
+    Logistics Cost Overview file → stored in MonthlyInput) to the *destination
+    month* (= month of statement_date), then flat-spreads across that month's
+    days so the daily P&L stays smooth.
+
+    One billing period can have multiple rows (e.g., February 2026 had two
+    statement entries on the same date). The aggregator sums all entries for
+    the same destination month.
+    """
+    period = models.CharField(max_length=7, db_index=True,
+                              help_text='Services month in YYYY-MM format (e.g. "2026-04")')
+    statement_date = models.DateField(db_index=True,
+                                      help_text='Day TikTok actually charged this period')
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0,
+                                 help_text='Total $ TikTok billed (Settled column on Payment Cycle file)')
+    status = models.CharField(max_length=32, blank=True)
+    source_file = models.CharField(max_length=255, blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('period', 'statement_date')]
+        ordering = ['statement_date']
+        indexes = [models.Index(fields=['period']),
+                   models.Index(fields=['statement_date'])]
+
+    def __str__(self):
+        return f'{self.period} → {self.statement_date} (${self.amount})'
+
+
 class MonthlyInputAudit(models.Model):
     """One row per field-change on MonthlyInput. Lets us show 'what was changed when' history."""
     month = models.CharField(max_length=7, db_index=True)

@@ -107,16 +107,16 @@ LINE_ITEM_DOCS = {
 
     # ============================ FULFILLMENT — non-Settlement shipping costs ============================
     'Cost to Ship to FBT': {
-        'what': 'Inbound shipping cost — what YOU paid to ship stock into FBT warehouse.',
-        'source': 'Monthly Input (manual entry).',
-        'formula': '-1 × (monthly value ÷ days in month), spread evenly each day.',
-        'notes': 'Manual because TikTok\'s "Inbound Shipping Fee" only covers TikTok-arranged inbounds (usually $0 for self-shipped stock). Sum your monthly inbound shipping invoices and enter the total.',
+        'what': 'Inbound shipping cost — what YOU paid Jetpack (or any 3PL) to ship stock into the FBT warehouse.',
+        'source': 'Monthly Input (manual entry — sum of Jetpack invoices).',
+        'formula': '-1 × (monthly value ÷ days in services month). Flat-spread within the services month.',
+        'notes': 'NOT on settlement-date methodology — this is a 3PL invoice you pay separately to Jetpack, outside TikTok\'s billing cycle, so it doesn\'t appear in the FBT Payment Cycle file. Stays flat-spread. (Confirmed exception with Lindsay 2026-06-26.)',
     },
     'Cost to Ship to Customer': {
         'what': 'Full outbound 3PL cost per shipment — postage + per-pack fee + per-pick fee.',
         'source': 'Seller Shipping CSV (3PL line-item report).',
-        'formula': '-1 × sum(postage + per_pack + per_pick) grouped by Order Date (falling back to Shipped Date if Order Date is missing).',
-        'notes': 'Accrual-attributed by Order Date — the day the customer placed the order — to stay consistent with the rest of the P&L. Older legacy rows that only have postage and shipped_date continue to flow in correctly.',
+        'formula': '-1 × sum(postage + per_pack + per_pick) grouped by Shipped Date.',
+        'notes': 'Attributed by Shipped Date — the day Jetpack actually shipped the package — per Lindsay 2026-06-25. Stays consistent with the Settlement-date methodology used elsewhere on the P&L.',
     },
 
     # ============================ FULFILLMENT — Adjustments ============================
@@ -127,78 +127,83 @@ LINE_ITEM_DOCS = {
         'notes': 'Comes from the Adjustments parent in TikTok\'s Reports tab, not the Shipping parent.',
     },
 
-    # ============================ FBT BILLING (manual monthly input) ============================
+    # ============================ FBT BILLING (TikTok-billed monthly fees) ============================
+    # Each of these 12 lines is sourced from the FBT Billing XLSX (Logistics
+    # Cost Overview) for line-item breakdowns, then attributed to the month
+    # TikTok actually charged the bill — looked up in the FBT Payment Cycle
+    # XLSX. The destination month's days share the cost equally so the daily
+    # P&L stays smooth (no day-1 spikes). Per Lindsay 2026-06-26.
     'FBT Hub Placement Fee': {
         'what': 'Cost charged by TikTok for placing your stock at FBT hub.',
-        'source': 'FBT Billing XLSX (Logistics Cost Overview).',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': 'One of ~12 sub-fees in the monthly FBT billing statement.',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month). The destination month is the month of the statement_date when TikTok charged that period. Falls back to flat-spread within the services month if no Payment Cycle row is uploaded yet.",
+        'notes': 'Settlement-date methodology. One of 12 TikTok-billed FBT sub-fees that move to the destination month per the Payment Cycle file.',
     },
     'FBT Storage Fee': {
         'what': 'FBT warehouse storage fee.',
-        'source': 'FBT Billing XLSX (Logistics Cost Overview).',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month). Destination month = month of TikTok's statement_date for the services period.",
+        'notes': 'Settlement-date methodology — re-attributed to the month TikTok actually charged the bill.',
     },
     'FBT Inbound Shipping Fee': {
         'what': 'Inbound shipping fee TikTok charges when they arrange the inbound.',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': 'Usually $0 for shops that arrange their own inbound shipping.',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Usually $0 for shops that arrange their own inbound shipping. Settlement-date methodology.',
     },
     'FBT Inbound Incidents Fee': {
         'what': 'Penalty fee for inbound shipment incidents (e.g., wrong labeling, damage).',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Settlement-date methodology.',
     },
     'FBT Booking Non-Compliance': {
         'what': 'Penalty fee when inbound booking rules aren\'t followed.',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Settlement-date methodology.',
     },
     'FBT Routing Non-Compliance': {
         'what': 'Penalty fee when inbound routing requirements aren\'t followed.',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Settlement-date methodology.',
     },
     'FBT Outbound No-Show': {
         'what': 'Penalty fee for missed outbound pickup appointments.',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Settlement-date methodology.',
     },
     'FBT Delayed Response Fee': {
         'what': 'Penalty fee for delayed responses to FBT requests.',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Settlement-date methodology.',
     },
     'FBT Disposal Fee': {
         'what': 'Cost to dispose of obsolete or returned inventory.',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Settlement-date methodology.',
     },
     'FBT Return Shipping (VAS)': {
         'what': 'Value-Added Service fee for return shipping handling.',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Settlement-date methodology.',
     },
     'FBT Return to Seller Handling': {
         'what': 'Fee for handling returns sent back to the seller.',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Settlement-date methodology.',
     },
     'FBT Inbound Return Operation': {
         'what': 'Operation fee for processing inbound returns.',
-        'source': 'FBT Billing XLSX.',
-        'formula': '-1 × (monthly value ÷ days in month).',
-        'notes': '',
+        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
+        'formula': "-1 × (services month's value ÷ days in destination month).",
+        'notes': 'Settlement-date methodology.',
     },
     'FBT Warehouse Compensation': {
         'what': 'TikTok\'s compensation for FBT warehouse damage to your stock.',

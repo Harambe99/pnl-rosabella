@@ -215,13 +215,22 @@ def _compute_daily_pnl_impl(start_date, end_date):
     for a in AdSpendDay.objects.filter(date__gte=start_date, date__lte=end_date):
         result[a.date]['Ad Spend — Direct to TikTok (cash)'] = -a.cost
 
-    # Monthly Inputs → flat-spread overlays
-    months_in_range = set()
-    for d in dates:
-        months_in_range.add(f'{d.year:04d}-{d.month:02d}')
-    mi_map = {mi.month: mi for mi in MonthlyInput.objects.filter(month__in=months_in_range)}
-
-    overlay_fields = {
+    # Monthly Inputs — split into two groups by attribution method:
+    #
+    #   NON_FBT_OVERLAY: stays flat-spread across the SERVICES month (current
+    #   behavior). These are manual entries with no statement-date concept,
+    #   and Cost to Ship to FBT which comes from Jetpack invoices not TikTok.
+    #
+    #   FBT_OVERLAY: 12 TikTok-billed FBT detail lines (Hub Placement, Storage,
+    #   etc.). When an FBTBillingSchedule exists for a services month, these
+    #   are attributed to the DESTINATION month (statement_date's month) and
+    #   flat-spread across the destination month's days — keeping the daily
+    #   P&L smooth (no day-1 spikes) while pushing the cost to the month
+    #   TikTok actually charged it. Without a schedule, falls back to
+    #   flat-spread within the services month (legacy behavior).
+    #
+    # Per Lindsay 2026-06-26.
+    NON_FBT_OVERLAY = {
         '   Team Spend': ('team_spend', -1),
         '   Software & Tools': ('software_tools', -1),
         '   Monthly Retainers': ('monthly_retainers', -1),
@@ -230,8 +239,8 @@ def _compute_daily_pnl_impl(start_date, end_date):
         '   Other G&A': ('other_ga', -1),
         '   Less: TT Promo Credits': ('tt_promo_credits', +1),
         '   Cost to Ship to FBT': ('cost_ship_to_fbt', -1),
-        # Cost to Ship to Customer is NOT here — it's populated exclusively from
-        # SellerShipmentCost (Seller Shipping CSV import). No manual flat-spread.
+    }
+    FBT_OVERLAY = {
         '   FBT Hub Placement Fee': ('fbt_hub_placement', -1),
         '   FBT Storage Fee': ('fbt_storage', -1),
         '   FBT Inbound Shipping Fee': ('fbt_inbound_shipping', -1),
@@ -246,14 +255,60 @@ def _compute_daily_pnl_impl(start_date, end_date):
         '   FBT Inbound Return Operation': ('fbt_inbound_return_op', -1),
     }
 
+    # Build {dest_month_YYYY_MM: services_period_YYYY_MM} from FBTBillingSchedule.
+    # Each schedule row says: "the period that was billed → settled on this
+    # statement_date." The destination month is the month of the statement_date.
+    # If a period has multiple statement_dates (e.g., Jan 2026 settled Feb 2 +
+    # Feb 10), they typically land in the same destination month so we map
+    # period→dest_month directly. (If they ever splinter across months we'd
+    # need to allocate by amount — leaving that for later.)
+    from .models import FBTBillingSchedule as _Sched
+    sched_map = {}  # dest_month → services_period
+    for sch in _Sched.objects.all():
+        dest_month = f'{sch.statement_date.year:04d}-{sch.statement_date.month:02d}'
+        # If multiple rows land on same dest_month, keep the same period (they
+        # share one). If a period somehow spans dest_months, last write wins —
+        # acceptable given how TikTok actually settles.
+        sched_map[dest_month] = sch.period
+
+    # Pre-load MonthlyInput rows for ALL services months that might feed into
+    # the destination months we're rendering (a few months back to be safe).
+    services_periods_needed = set()
     for d in dates:
-        mkey = f'{d.year:04d}-{d.month:02d}'
-        mi = mi_map.get(mkey)
-        if not mi: continue
-        dim = days_in_month(mkey)
-        for label, (field, sign) in overlay_fields.items():
-            val = getattr(mi, field) or ZERO
-            result[d][label] = Decimal(sign) * val / dim
+        dest_mkey = f'{d.year:04d}-{d.month:02d}'
+        if dest_mkey in sched_map:
+            services_periods_needed.add(sched_map[dest_mkey])
+        # Also still need MonthlyInput for the day's own month (non-FBT overlay)
+        services_periods_needed.add(dest_mkey)
+    mi_map = {mi.month: mi for mi in MonthlyInput.objects.filter(month__in=services_periods_needed)}
+
+    for d in dates:
+        dest_mkey = f'{d.year:04d}-{d.month:02d}'
+        dim = days_in_month(dest_mkey)
+
+        # ---- Non-FBT overlay: spread the day's own month's value ----
+        mi_for_day = mi_map.get(dest_mkey)
+        if mi_for_day:
+            for label, (field, sign) in NON_FBT_OVERLAY.items():
+                val = getattr(mi_for_day, field) or ZERO
+                result[d][label] = Decimal(sign) * val / dim
+
+        # ---- FBT overlay: use Payment Cycle schedule if available ----
+        services_period = sched_map.get(dest_mkey)
+        if services_period:
+            # Settlement-date methodology: the previous services month's bill
+            # lands in THIS month (the destination). Flat-spread across days.
+            mi_services = mi_map.get(services_period)
+            if mi_services:
+                for label, (field, sign) in FBT_OVERLAY.items():
+                    val = getattr(mi_services, field) or ZERO
+                    result[d][label] = Decimal(sign) * val / dim
+        elif mi_for_day:
+            # No Payment Cycle schedule uploaded for this destination month yet
+            # → fall back to legacy flat-spread within the services month.
+            for label, (field, sign) in FBT_OVERLAY.items():
+                val = getattr(mi_for_day, field) or ZERO
+                result[d][label] = Decimal(sign) * val / dim
 
     # Seller-shipping per-day override for Cost to Ship to Customer.
     # Cost = postage + per_pack + per_pick (the full 3PL line item per shipment).

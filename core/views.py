@@ -18,6 +18,7 @@ from .models import (COGSItem, MonthlyInput, ImportLog, MonthlyInputAudit,
 from .aggregator import compute_daily_pnl, compute_monthly_pnl, PNL_ROW_LAYOUT
 from .importers import (import_manage_orders, import_settlement,
                         import_shop_analytics, import_ad_spend, import_fbt_billing,
+                        import_fbt_payment_cycle,
                         import_seller_shipping, import_ad_transactions)
 
 
@@ -138,6 +139,8 @@ def upload(request):
             elif kind == 'fbt_billing':
                 period = request.POST.get('period', '').strip()
                 result = import_fbt_billing(f, period, f.name)
+            elif kind == 'fbt_payment_cycle':
+                result = import_fbt_payment_cycle(f, f.name)
             elif kind == 'seller_shipping':
                 result = import_seller_shipping(f, f.name)
             elif kind == 'ad_transactions':

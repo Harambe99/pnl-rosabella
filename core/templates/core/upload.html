@@ -56,8 +56,19 @@
       {% csrf_token %}
       <input type="hidden" name="kind" value="fbt_billing">
       <h5>5. FBT Billing</h5>
-      <small class="text-muted mb-2">xlsx from FBT portal → Costs → Logistics Cost Overview</small>
+      <small class="text-muted mb-2">xlsx from FBT portal → Costs → Logistics Cost Overview. Per-line breakdown of warehouse / incidents / VAS fees for one billing month.</small>
       <input type="text" name="period" placeholder="Billing period YYYY-MM (e.g. 2026-04)" class="form-control mb-2" pattern="\d{4}-\d{2}" required>
+      <input type="file" name="file" accept=".xlsx" class="form-control mb-2" required>
+      <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+    </form>
+  </div>
+
+  <div class="col-md-6 col-lg-4">
+    <form method="post" enctype="multipart/form-data" class="card p-3">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="fbt_payment_cycle">
+      <h5>5b. FBT Payment Cycle</h5>
+      <small class="text-muted mb-2">xlsx from Seller Center → Finance → Payment cycle. Tells the app on which <em>statement date</em> TikTok actually charged each FBT billing month — used to attribute the 12 FBT-detail lines to the correct destination month (per Lindsay 2026-06-26). Re-upload whenever new periods settle.</small>
       <input type="file" name="file" accept=".xlsx" class="form-control mb-2" required>
       <button class="btn btn-primary btn-sm" type="submit">Upload</button>
     </form>

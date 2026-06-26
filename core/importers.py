@@ -9,7 +9,9 @@ from decimal import Decimal
 from django.db import transaction
 import openpyxl
 
-from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, COGSItem, ImportLog, SellerShipmentCost, AdTransaction
+from .models import (Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput,
+                     COGSItem, ImportLog, SellerShipmentCost, AdTransaction,
+                     FBTBillingSchedule)
 
 
 def _to_dec(v):
@@ -722,6 +724,106 @@ def import_fbt_billing(file_obj, period, filename=''):
     ImportLog.objects.create(importer='fbt_billing', filename=filename,
                              rows_added=count, notes=f'Period: {period}')
     return {'added': count, 'period': period}
+
+
+# ===========================================================================
+# 6b. FBT Payment Cycle importer (TikTok Seller Center → Finance → Payment cycle)
+# ===========================================================================
+# Period names in the file look like "April 2026", "December 2025", etc.
+_MONTH_NAMES = {
+    'january': '01', 'february': '02', 'march': '03', 'april': '04',
+    'may': '05', 'june': '06', 'july': '07', 'august': '08',
+    'september': '09', 'october': '10', 'november': '11', 'december': '12',
+}
+
+
+def _parse_period(s):
+    """Convert 'April 2026' → '2026-04'. Returns None on parse failure."""
+    if not s: return None
+    parts = str(s).strip().lower().split()
+    if len(parts) != 2: return None
+    month_num = _MONTH_NAMES.get(parts[0])
+    if not month_num: return None
+    try:
+        year = int(parts[1])
+        return f'{year:04d}-{month_num}'
+    except ValueError:
+        return None
+
+
+def import_fbt_payment_cycle(file_obj, filename=''):
+    """TikTok Payment Cycle XLSX → FBTBillingSchedule rows.
+
+    The file has one row per (billing period, statement date) entry. We
+    aggregate by summing the Settled amount across rows with the same
+    (period, statement_date), then upsert. This gives the aggregator the
+    statement_date for each services month so the 12 FBT-detail lines can
+    attribute to the correct destination month (flat-spread within it).
+
+    Expected columns: Billing period | Statement date | Due date | Total |
+                       Settled | Outstanding | Status | Subject
+    """
+    wb = openpyxl.load_workbook(file_obj, data_only=True)
+    ws = wb[wb.sheetnames[0]]
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows or len(rows) < 2:
+        return {'added': 0, 'errors': ['Empty file']}
+
+    # Find columns from header row
+    hdr = [_clean_str(c).lower() if c is not None else '' for c in rows[0]]
+    def col(name):
+        for i, h in enumerate(hdr):
+            if h == name.lower(): return i
+        return -1
+    c_period = col('billing period')
+    c_stmt = col('statement date')
+    c_settled = col('settled')
+    c_status = col('status')
+    if c_period < 0 or c_stmt < 0 or c_settled < 0:
+        return {'added': 0, 'errors': [
+            f'Missing required columns. Found headers: {hdr}']}
+
+    # Aggregate (period, stmt_date) → (total_settled, status_str)
+    agg = {}
+    for r in rows[1:]:
+        if not r: continue
+        period_raw = r[c_period] if c_period < len(r) else None
+        stmt_raw = r[c_stmt] if c_stmt < len(r) else None
+        settled_raw = r[c_settled] if c_settled < len(r) else None
+        status = _clean_str(r[c_status]) if c_status >= 0 and c_status < len(r) else ''
+        period = _parse_period(period_raw)
+        stmt_date = _to_date(stmt_raw)
+        amt = _to_dec(settled_raw)
+        if not period or not stmt_date:
+            continue
+        key = (period, stmt_date)
+        if key in agg:
+            agg[key]['amount'] += amt
+        else:
+            agg[key] = {'amount': amt, 'status': status}
+
+    # Upsert: existing rows for the same (period, stmt_date) get overwritten,
+    # new rows are created. We don't delete missing rows — a re-uploaded file
+    # might cover a narrower date range than the prior one.
+    added = updated = 0
+    for (period, stmt_date), data in agg.items():
+        obj, was_created = FBTBillingSchedule.objects.update_or_create(
+            period=period,
+            statement_date=stmt_date,
+            defaults={
+                'amount': data['amount'],
+                'status': data['status'],
+                'source_file': filename,
+            },
+        )
+        if was_created: added += 1
+        else: updated += 1
+
+    ImportLog.objects.create(
+        importer='fbt_payment_cycle', filename=filename,
+        rows_added=added,
+        notes=f'Schedules: {len(agg)} ({added} new, {updated} updated)')
+    return {'added': added, 'updated': updated, 'total': len(agg)}
 
 
 # ===========================================================================
