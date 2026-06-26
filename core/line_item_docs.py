@@ -12,21 +12,21 @@ LINE_ITEM_DOCS = {
     # ============================ REVENUE ============================
     'Gross Sales': {
         'what': 'Pre-discount value of every order placed in this period.',
-        'source': 'Manage Orders CSV → SKU Subtotal Before Discount.',
-        'formula': 'Sum across ALL order statuses (Shipped, Completed, Canceled, To ship) where Created Time falls in this period.',
-        'notes': 'Includes canceled orders so the Settlement-side refund line nets them out cleanly to $0 for cancellations.',
+        'source': 'Manage Orders CSV → SKU Subtotal Before Discount (joined to Settlement via order_id).',
+        'formula': 'Sum across ALL order statuses (Shipped, Completed, Canceled, To ship), attributed by the Statement date on the order\'s primary Settlement row.',
+        'notes': 'Per Lindsay/Jack 2026-06-25 — orders attribute by Statement date (day TikTok processed the order through settlement), not by Created Time. Orders not yet settled don\'t appear until a fresh settlement file is uploaded. Includes canceled orders so the refund line nets them out.',
     },
     'Less: Promos & Discounts': {
         'what': 'Seller-funded discounts applied at order placement.',
-        'source': 'Manage Orders CSV → SKU Seller Discount column.',
-        'formula': 'Sum across all order statuses by Created Time. Stored negative.',
-        'notes': 'Includes discounts on canceled orders so they net out through the refund line.',
+        'source': 'Manage Orders CSV → SKU Seller Discount column (joined to Settlement via order_id).',
+        'formula': 'Sum across all order statuses, attributed by the Statement date on the order\'s primary Settlement row. Stored negative.',
+        'notes': 'Same Statement-date attribution as Gross Sales — moves in lockstep so GMV reconciles cleanly.',
     },
     'GMV': {
         'what': 'Gross Merchandise Value — the post-discount value of orders placed.',
         'source': 'Computed in-app.',
         'formula': 'Gross Sales + Less: Promos & Discounts.',
-        'notes': 'Accrual-consistent with the rest of the P&L (orders attributed by Created Time). Used as the GMV that drives Net Revenue.',
+        'notes': 'Both inputs are on Statement-date methodology (settlement-period basis). Used as the GMV that drives Net Revenue.',
     },
     'GMV (TikTok Analytics — reference)': {
         'what': "TikTok's headline GMV from Shop Analytics, shown for comparison.",
@@ -37,7 +37,7 @@ LINE_ITEM_DOCS = {
     'Less: Refunds': {
         'what': 'Refund impact on revenue from orders refunded after placement.',
         'source': 'Settlement XLSX → Gross sales refund + Seller discount refund.',
-        'formula': 'sum(Gross sales refund) + sum(Seller discount refund), attributed by Order created date.',
+        'formula': 'sum(Gross sales refund) + sum(Seller discount refund), attributed by Statement date (the day TikTok processed the settlement).',
         'notes': 'Captures both pre-ship cancellation refunds and post-delivery returns. Stored negative.',
     },
     'NET REVENUE': {
@@ -59,49 +59,49 @@ LINE_ITEM_DOCS = {
     'FBT Fulfillment Fee': {
         'what': 'TikTok\'s bundled pick/pack/ship fee for orders fulfilled via FBT.',
         'source': 'Settlement XLSX → FBT fulfillment fee column on Order rows.',
-        'formula': 'sum(FBT fulfillment fee) by Order created date.',
+        'formula': 'sum(FBT fulfillment fee) by Statement date.',
         'notes': 'Sub-component of TikTok\'s Reports tab "Shipping" parent line. The 7 shipping lines below all sum to that parent.',
     },
     'FBT Fulfillment Reimbursement': {
         'what': 'TikTok refunding part or all of the FBT fee when fulfillment failed.',
         'source': 'Settlement XLSX → FBT fulfillment fee reimbursement column.',
-        'formula': 'sum by Order created date. Positive (a credit back to you).',
+        'formula': 'sum by Statement date. Positive (a credit back to you).',
         'notes': 'Fires when an FBT order had a fulfillment problem (lost, damaged, etc.).',
     },
     'TT Shop Shipping Incentive': {
         'what': 'TikTok\'s credit to seller when an order qualifies for free shipping.',
         'source': 'Settlement XLSX → TikTok Shop shipping incentive column.',
-        'formula': 'sum by Order created date. Positive.',
+        'formula': 'sum by Statement date. Positive.',
         'notes': 'Almost always paired one-for-one with Customer Shipping Fee Offset (net seller impact: $0). Sub-component of Shipping parent.',
     },
     'Shipping Fee Subsidy': {
         'what': 'A separate subsidy program for seller-shipped orders.',
         'source': 'Settlement XLSX → Shipping fee subsidy column.',
-        'formula': 'sum by Order created date.',
+        'formula': 'sum by Statement date.',
         'notes': 'Usually $0 — only fires when a specific seller subsidy program is active.',
     },
     'Customer Shipping Fee Offset': {
         'what': 'TikTok\'s clawback that mirrors the shipping incentive OR the customer-paid shipping fee.',
         'source': 'Settlement XLSX → Customer shipping fee offset column.',
-        'formula': 'sum by Order created date. Negative.',
+        'formula': 'sum by Statement date. Negative.',
         'notes': 'Per TikTok docs: "typically used to offset either TikTok Shop\'s shipping incentive or customer-paid shipping fees, resulting in a net charge of $0 to you." The residual gap is seller-funded shipping on FBT-fulfilled products.',
     },
     'Customer-Paid Shipping Fee': {
         'what': 'Shipping fee the customer actually paid (orders under the free-shipping threshold).',
         'source': 'Settlement XLSX → Customer-paid shipping fee column.',
-        'formula': 'sum by Order created date. Positive (revenue to seller).',
+        'formula': 'sum by Statement date. Positive (revenue to seller).',
         'notes': 'On a shop with mostly free shipping, this is small. Sub-component of Shipping parent.',
     },
     'Customer-Paid Shipping Refund': {
         'what': 'Reversal of customer-paid shipping when an order is refunded.',
         'source': 'Settlement XLSX → Customer-paid shipping fee refund column.',
-        'formula': 'sum by Order created date. Negative.',
+        'formula': 'sum by Statement date. Negative.',
         'notes': 'Pairs with Customer-Paid Shipping Fee on the refund side.',
     },
     'Seller Shipping Fee Discount': {
         'what': 'Seller-funded shipping discount given to customers.',
         'source': 'Settlement XLSX → Seller shipping fee discount column.',
-        'formula': 'sum by Order created date. Negative.',
+        'formula': 'sum by Statement date. Negative.',
         'notes': 'When the seller offers a shipping discount as part of a promotion. Sub-component of Shipping parent.',
     },
 
@@ -123,7 +123,7 @@ LINE_ITEM_DOCS = {
     'Logistics Reimbursement': {
         'what': 'TikTok refunding losses due to logistics-related issues or campaign participation.',
         'source': 'Settlement XLSX → Adjustment rows where Type = "Logistics reimbursement".',
-        'formula': 'sum by Order created date. Positive.',
+        'formula': 'sum by Statement date. Positive.',
         'notes': 'Comes from the Adjustments parent in TikTok\'s Reports tab, not the Shipping parent.',
     },
 
@@ -208,13 +208,13 @@ LINE_ITEM_DOCS = {
     'FBT Warehouse Compensation': {
         'what': 'TikTok\'s compensation for FBT warehouse damage to your stock.',
         'source': 'Settlement XLSX → Adjustment rows where Type = "FBT warehouse compensation".',
-        'formula': 'sum by Order created date. Positive (a credit back to you).',
+        'formula': 'sum by Statement date. Positive (a credit back to you).',
         'notes': '',
     },
     'FBT Warehouse Service Fee': {
         'what': 'In-warehouse fees TikTok charges for FBT services (storage, handling).',
         'source': 'Settlement XLSX → Adjustment rows where Type = "FBT warehouse service fee using GMV payments".',
-        'formula': 'sum by Order created date. Negative.',
+        'formula': 'sum by Statement date. Negative.',
         'notes': 'Distinct from the FBT Storage Fee in FBT Billing — this one comes from settlement adjustments.',
     },
 
@@ -222,55 +222,55 @@ LINE_ITEM_DOCS = {
     'Referral Fee': {
         'what': 'TikTok\'s commission on successful orders.',
         'source': 'Settlement XLSX → Referral fee column on Order rows.',
-        'formula': 'sum by Order created date. Negative.',
+        'formula': 'sum by Statement date. Negative.',
         'notes': 'TikTok\'s primary monetization — typically 5-10% of order value.',
     },
     'Refund Admin Fee': {
         'what': '20% administrative deduction TikTok keeps from refunded referral fees.',
         'source': 'Settlement XLSX → Refund administration fee column.',
-        'formula': 'sum by Order created date. Negative.',
+        'formula': 'sum by Statement date. Negative.',
         'notes': 'When an order is refunded, TikTok refunds the referral fee but keeps 20% as an admin fee.',
     },
     'Campaign Service Fee': {
         'what': 'Fee charged for participating in TikTok platform campaigns.',
         'source': 'Settlement XLSX → Campaign service fee column.',
-        'formula': 'sum by Order created date.',
+        'formula': 'sum by Statement date.',
         'notes': 'Usually small or $0.',
     },
     'Violation Fee': {
         'what': 'Penalty fee for policy violations.',
         'source': 'Settlement XLSX → Adjustment rows where Type contains "Violation fee".',
-        'formula': 'sum by Order created date. Negative.',
+        'formula': 'sum by Statement date. Negative.',
         'notes': 'Fires when TikTok deducts for unpleasant buyer experiences due to seller fault.',
     },
     'TikTok Shop Reimb': {
         'what': 'TikTok\'s reimbursement for seller losses due to return/refund rules.',
         'source': 'Settlement XLSX → Adjustment rows where Type = "TikTok Shop reimbursement".',
-        'formula': 'sum by Order created date. Positive.',
+        'formula': 'sum by Statement date. Positive.',
         'notes': '',
     },
     'Rebate': {
         'what': 'Rebate credits issued by TikTok.',
         'source': 'Settlement XLSX → Adjustment rows where Type = "Rebate".',
-        'formula': 'sum by Order created date. Positive.',
+        'formula': 'sum by Statement date. Positive.',
         'notes': '',
     },
     'Co-funded Promotion (seller-funded)': {
         'what': 'Seller\'s share of a co-funded promotion with TikTok.',
         'source': 'Settlement XLSX → Co-funded promotion (seller-funded) column on Order rows.',
-        'formula': 'sum by Order created date.',
+        'formula': 'sum by Statement date.',
         'notes': 'Your contribution to discounts where TikTok also chipped in.',
     },
     'Co-funded Promotion Campaign Period Fee': {
         'what': 'Recurring fee TikTok charges during Co-funded Promotion campaign windows.',
         'source': 'Settlement XLSX → Co-funded Promotion campaign period fee column on Order rows.',
-        'formula': 'sum by Order created date. Negative.',
+        'formula': 'sum by Statement date. Negative.',
         'notes': 'Separate from the seller-funded discount portion — this is the campaign participation fee.',
     },
     'Unclassified Adjustments': {
         'what': 'Catch-all bucket for Settlement adjustment Types we don\'t have explicit mappings for.',
         'source': 'Settlement XLSX → Adjustment rows where Type isn\'t in TYPE_TO_FIELD map.',
-        'formula': 'sum by Order created date.',
+        'formula': 'sum by Statement date.',
         'notes': 'If this is non-zero, check ImportLog notes on the History page — it lists the actual Type names that fell here.',
     },
 
@@ -309,8 +309,8 @@ LINE_ITEM_DOCS = {
     'Platform (Affiliate Commission)': {
         'what': 'Total commission paid to creators across all TikTok affiliate programs.',
         'source': 'Settlement XLSX → sum of 4 columns: Affiliate Commission + Affiliate partner commission + Affiliate Shop Ads commission + Affiliate Partner shop ads commission.',
-        'formula': 'Sum of all 4 columns, by Order created date. Negative.',
-        'notes': '',
+        'formula': 'Sum of all 4 columns, by Statement date. Negative.',
+        'notes': 'Per Lindsay/Jack 2026-06-25 — affiliate commission ties to Statement date (day TikTok finalized the commission payout on its statement).',
     },
     'Off-Platform (1% method)': {
         'what': 'Estimated cost of off-platform creator commissions (1% of GMV method).',
@@ -359,7 +359,7 @@ LINE_ITEM_DOCS = {
     'Chargebacks': {
         'what': 'Credit card chargeback losses.',
         'source': 'Settlement XLSX → Adjustment rows where Type = "Chargeback".',
-        'formula': 'sum by Order created date. Negative.',
+        'formula': 'sum by Statement date. Negative.',
         'notes': 'Funds reversed by customers\' card issuers due to disputes.',
     },
     'TOTAL SG&A': {
