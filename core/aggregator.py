@@ -104,13 +104,21 @@ def _compute_daily_pnl_impl(start_date, end_date):
         # "shipped_canceled" set instead of a correlated IN-subquery so
         # Postgres uses a hash join (fast) rather than a nested-loop lookup
         # per row (catastrophic on 200k orders).
+        # MIN(statement_date) must be computed over ALL history (no date filter
+        # inside the CTE) so the order's attribution is STABLE regardless of
+        # which date range we're computing. Otherwise the same order moves
+        # between months depending on whether you query May-only vs full-year
+        # (a settlement-row in Mar + another in May → MIN-in-May-range = May,
+        # MIN-in-full-year = Mar → different attribution → dashboard ≠ export).
+        # We filter at the OUTER query so each order has exactly one canonical
+        # statement_date forever.
         cur.execute(
             '''
             WITH order_stmt AS (
                 SELECT order_id, MIN(statement_date) AS stmt_date
                 FROM core_settlementrow
                 WHERE row_type = 'Order'
-                  AND statement_date BETWEEN %s AND %s
+                  AND statement_date IS NOT NULL
                 GROUP BY order_id
             ),
             shipped_canceled AS (
@@ -130,6 +138,7 @@ def _compute_daily_pnl_impl(start_date, end_date):
             FROM core_order o
             INNER JOIN order_stmt os ON os.order_id = o.order_id
             LEFT  JOIN shipped_canceled sc ON sc.order_id = o.order_id
+            WHERE os.stmt_date BETWEEN %s AND %s
             GROUP BY os.stmt_date
             ''', [start_date, end_date])
         for stmt_d, gross, promos, cogs in cur.fetchall():
