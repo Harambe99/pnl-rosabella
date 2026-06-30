@@ -163,6 +163,7 @@ def _compute_daily_pnl_impl(start_date, end_date):
         fbt_reimb=Sum('fbt_reimb'),
         shipping=Sum('shipping'),
         tt_shop_shipping_incentive=Sum('tt_shop_shipping_incentive'),
+        tt_shop_shipping_incentive_refund=Sum('tt_shop_shipping_incentive_refund'),
         shipping_fee_subsidy=Sum('shipping_fee_subsidy'),
         customer_shipping_fee_offset=Sum('customer_shipping_fee_offset'),
         customer_paid_shipping_fee=Sum('customer_paid_shipping_fee'),
@@ -202,6 +203,7 @@ def _compute_daily_pnl_impl(start_date, end_date):
         result[d]['   FBT Fulfillment Fee'] = r['fbt_fee'] or ZERO
         result[d]['   FBT Fulfillment Reimbursement'] = r['fbt_reimb'] or ZERO
         result[d]['   TT Shop Shipping Incentive'] = r['tt_shop_shipping_incentive'] or ZERO
+        result[d]['   TT Shop Shipping Incentive Refund'] = r['tt_shop_shipping_incentive_refund'] or ZERO
         result[d]['   Shipping Fee Subsidy'] = r['shipping_fee_subsidy'] or ZERO
         result[d]['   Customer Shipping Fee Offset'] = r['customer_shipping_fee_offset'] or ZERO
         result[d]['   Customer-Paid Shipping Fee'] = r['customer_paid_shipping_fee'] or ZERO
@@ -373,7 +375,8 @@ def _compute_daily_pnl_impl(start_date, end_date):
         # GROSS PROFIT
         gp_items = ['NET REVENUE', 'COGS',
                     '   FBT Fulfillment Fee', '   FBT Fulfillment Reimbursement',
-                    '   TT Shop Shipping Incentive', '   Shipping Fee Subsidy',
+                    '   TT Shop Shipping Incentive', '   TT Shop Shipping Incentive Refund',
+                    '   Shipping Fee Subsidy',
                     '   Customer Shipping Fee Offset',
                     '   Customer-Paid Shipping Fee', '   Customer-Paid Shipping Refund',
                     # '   Seller Shipping Fee Discount' removed 2026-06-30 — its
@@ -408,14 +411,14 @@ def _compute_daily_pnl_impl(start_date, end_date):
             + row.get('   Monthly Retainers', ZERO)
             + row.get('   Outsourced Agency', ZERO))
 
-        # TOTAL SG&A
-        row['TOTAL SG&A'] = (row.get('   Team Spend', ZERO)
+        # TOTAL G&A
+        row['TOTAL G&A'] = (row.get('   Team Spend', ZERO)
             + row.get('   Software & Tools', ZERO)
             + row.get('   Other G&A', ZERO)
             + row.get('   Chargebacks', ZERO)
             + row.get('   Unclassified Adjustments', ZERO))
 
-        row['NET PROFIT'] = row['GROSS PROFIT'] + row['TOTAL MARKETING'] + row['TOTAL SG&A']
+        row['NET PROFIT'] = row['GROSS PROFIT'] + row['TOTAL MARKETING'] + row['TOTAL G&A']
 
     return result
 
@@ -452,6 +455,7 @@ PNL_ROW_LAYOUT = [
     ('   FBT Fulfillment Fee', 'row'),
     ('   FBT Fulfillment Reimbursement', 'row'),
     ('   TT Shop Shipping Incentive', 'row'),
+    ('   TT Shop Shipping Incentive Refund', 'row'),
     ('   Shipping Fee Subsidy', 'row'),
     ('   Customer Shipping Fee Offset', 'row'),
     ('   Customer-Paid Shipping Fee', 'row'),
@@ -499,13 +503,13 @@ PNL_ROW_LAYOUT = [
     ('   Outsourced Agency', 'row'),
     ('TOTAL MARKETING', 'total'),
     ('', 'blank'),
-    ('SG&A', 'section'),
+    ('G&A', 'section'),
     ('   Team Spend', 'row'),
     ('   Software & Tools', 'row'),
     ('   Other G&A', 'row'),
     ('   Chargebacks', 'row'),
     ('   Unclassified Adjustments', 'row'),
-    ('TOTAL SG&A', 'total'),
+    ('TOTAL G&A', 'total'),
     ('', 'blank'),
     ('NET PROFIT', 'total'),
 ]

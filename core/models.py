@@ -61,6 +61,7 @@ class SettlementRow(models.Model):
     shipping = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     tt_ship_net = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     tt_shop_shipping_incentive = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tt_shop_shipping_incentive_refund = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     shipping_fee_subsidy = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     customer_shipping_fee_offset = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     customer_paid_shipping_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0)

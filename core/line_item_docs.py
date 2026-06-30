@@ -74,6 +74,12 @@ LINE_ITEM_DOCS = {
         'formula': 'sum by Statement date. Positive.',
         'notes': 'Almost always paired one-for-one with Customer Shipping Fee Offset (net seller impact: $0). Sub-component of Shipping parent.',
     },
+    'TT Shop Shipping Incentive Refund': {
+        'what': 'Clawback of a previously credited TT Shop Shipping Incentive.',
+        'source': 'Settlement XLSX → TikTok Shop shipping incentive refund column.',
+        'formula': 'sum by Statement date. Negative (reduces seller\'s net).',
+        'notes': 'Pairs with TT Shop Shipping Incentive on the refund side. Per Jack 2026-06-30. Typically small (~$0-1.5k/month). Only populates after re-uploading Settlement files post the 0011 migration.',
+    },
     'Shipping Fee Subsidy': {
         'what': 'A separate subsidy program for seller-shipped orders.',
         'source': 'Settlement XLSX → Shipping fee subsidy column.',
@@ -272,7 +278,7 @@ LINE_ITEM_DOCS = {
     },
 
     'GROSS PROFIT': {
-        'what': 'Profit before marketing and SG&A costs.',
+        'what': 'Profit before marketing and G&A costs.',
         'source': 'Computed.',
         'formula': 'Net Revenue + COGS + all Fulfillment lines + all Platform Fee lines.',
         'notes': '',
@@ -334,7 +340,7 @@ LINE_ITEM_DOCS = {
         'notes': '',
     },
 
-    # ============================ SG&A ============================
+    # ============================ G&A ============================
     'Team Spend': {
         'what': 'Team / payroll costs.',
         'source': 'Monthly Input.',
@@ -359,7 +365,7 @@ LINE_ITEM_DOCS = {
         'formula': 'sum by Statement date. Negative.',
         'notes': 'Funds reversed by customers\' card issuers due to disputes.',
     },
-    'TOTAL SG&A': {
+    'TOTAL G&A': {
         'what': 'Total general & administrative costs.',
         'source': 'Computed.',
         'formula': 'Team Spend + Software & Tools + Other G&A + Chargebacks + Unclassified Adjustments.',
@@ -369,8 +375,8 @@ LINE_ITEM_DOCS = {
     'NET PROFIT': {
         'what': 'Bottom-line profit or loss.',
         'source': 'Computed.',
-        'formula': 'Gross Profit + Total Marketing + Total SG&A.',
-        'notes': 'All marketing and SG&A values are negative, so adding them subtracts from Gross Profit.',
+        'formula': 'Gross Profit + Total Marketing + Total G&A.',
+        'notes': 'All marketing and G&A values are negative, so adding them subtracts from Gross Profit.',
     },
 
     # Less: TT Promo Credits — already covered above. (kept for explicit indexing)

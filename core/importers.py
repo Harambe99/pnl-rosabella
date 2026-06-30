@@ -215,6 +215,7 @@ def import_settlement(file_obj, filename=''):
     c_disc_ref = col('Seller discount refund')
     c_shipping = col('Shipping')
     c_tt_inc = col('TikTok Shop shipping incentive')
+    c_tt_inc_refund = col('TikTok Shop shipping incentive refund')
     c_subsidy = col('Shipping fee subsidy')
     c_offset = col('Customer shipping fee offset')
     c_cust_paid = col('Customer-paid shipping fee')
@@ -251,7 +252,8 @@ def import_settlement(file_obj, filename=''):
     UPSERT_FIELDS = [
         'referral_fee', 'affiliate_total', 'campaign_fee', 'refund_admin',
         'fbt_fee', 'fbt_reimb', 'shipping', 'tt_ship_net',
-        'tt_shop_shipping_incentive', 'shipping_fee_subsidy',
+        'tt_shop_shipping_incentive', 'tt_shop_shipping_incentive_refund',
+        'shipping_fee_subsidy',
         'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
         'customer_paid_shipping_refund',
         'cofunded_promo', 'cofunded_promo_campaign_fee',
@@ -268,7 +270,8 @@ def import_settlement(file_obj, filename=''):
     SUM_FIELDS = [
         'quantity', 'referral_fee', 'affiliate_total', 'campaign_fee',
         'refund_admin', 'fbt_fee', 'fbt_reimb', 'shipping',
-        'tt_shop_shipping_incentive', 'shipping_fee_subsidy',
+        'tt_shop_shipping_incentive', 'tt_shop_shipping_incentive_refund',
+        'shipping_fee_subsidy',
         'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
         'customer_paid_shipping_refund', 'tt_ship_net',
         'cofunded_promo', 'cofunded_promo_campaign_fee',
@@ -326,6 +329,7 @@ def import_settlement(file_obj, filename=''):
             ship_sub = _to_dec(row[c_subsidy]) if c_subsidy >= 0 else 0
             cust_off = _to_dec(row[c_offset]) if c_offset >= 0 else 0
             sr.tt_shop_shipping_incentive = tt_inc
+            sr.tt_shop_shipping_incentive_refund = _to_dec(row[c_tt_inc_refund]) if c_tt_inc_refund >= 0 else 0
             sr.shipping_fee_subsidy = ship_sub
             sr.customer_shipping_fee_offset = cust_off
             sr.customer_paid_shipping_fee = _to_dec(row[c_cust_paid]) if c_cust_paid >= 0 else 0

@@ -245,6 +245,7 @@ LINE_ITEM_TO_SOURCE = {
     'FBT Fulfillment Fee': 'Source — Settlement',
     'FBT Fulfillment Reimbursement': 'Source — Settlement',
     'TT Shop Shipping Incentive': 'Source — Settlement',
+    'TT Shop Shipping Incentive Refund': 'Source — Settlement',
     'Shipping Fee Subsidy': 'Source — Settlement',
     'Customer Shipping Fee Offset': 'Source — Settlement',
     'Customer-Paid Shipping Fee': 'Source — Settlement',
@@ -452,14 +453,15 @@ def _build_source_sheets(wb, start_date, end_date, styles):
     s_cols = ['Statement Date', 'Order Created Date', 'Order/Adjustment ID', 'Statement ID', 'Type', 'Qty',
               'Referral Fee', 'Refund Admin Fee', 'Campaign Service Fee',
               'Affiliate Total', 'FBT Fulfillment Fee', 'FBT Fulfillment Reimb',
-              'Shipping (parent)', 'TT Shop Shipping Incentive', 'Shipping Fee Subsidy',
+              'Shipping (parent)', 'TT Shop Shipping Incentive', 'TT Shop Shipping Incentive Refund',
+              'Shipping Fee Subsidy',
               'Customer Shipping Fee Offset', 'Customer-Paid Shipping Fee',
               'Customer-Paid Shipping Refund', 'Seller Shipping Fee Discount',
               'Co-funded Promo (seller)', 'Co-funded Promo Campaign Fee',
               'Refund Total', 'Chargeback', 'Violation Fee', 'TT Shop Reimb',
               'Logistics Reimb', 'FBT Warehouse Service Fee', 'FBT Warehouse Comp',
               'Rebate', 'Unclassified Adjustment']
-    s_widths = [14, 16, 22, 18, 22, 6] + [14]*24
+    s_widths = [14, 16, 22, 18, 22, 6] + [14]*25
     s_rows = []
     if BIG_SHEETS_ENABLED:
         s_qs = SettlementRow.objects.filter(
@@ -468,6 +470,7 @@ def _build_source_sheets(wb, start_date, end_date, styles):
             'statement_date', 'order_created_date', 'order_id', 'settlement_id', 'row_type', 'quantity',
             'referral_fee', 'refund_admin', 'campaign_fee', 'affiliate_total',
             'fbt_fee', 'fbt_reimb', 'shipping', 'tt_shop_shipping_incentive',
+            'tt_shop_shipping_incentive_refund',
             'shipping_fee_subsidy', 'customer_shipping_fee_offset', 'customer_paid_shipping_fee',
             'customer_paid_shipping_refund', 'seller_shipping_fee_discount',
             'cofunded_promo', 'cofunded_promo_campaign_fee', 'refund_total',
