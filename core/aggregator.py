@@ -169,7 +169,13 @@ def _compute_daily_pnl_impl(start_date, end_date):
         customer_paid_shipping_refund=Sum('customer_paid_shipping_refund'),
         cofunded_promo=Sum('cofunded_promo'),
         cofunded_promo_campaign_fee=Sum('cofunded_promo_campaign_fee'),
-        seller_shipping_fee_discount=Sum('seller_shipping_fee_discount'),
+        # NOTE: `seller_shipping_fee_discount` intentionally NOT aggregated for the
+        # P&L. Per Jack 2026-06-30: TikTok's "Customer-paid shipping fee" column
+        # is ALREADY the net (= before-discounts + seller-shipping-discount +
+        # tt-shop-shipping-discount). Booking Seller Shipping Fee Discount as a
+        # separate P&L line was double-counting the seller's portion.
+        # The DB field still exists + Settlement importer still populates it
+        # (visible in Source — Settlement sheet) for transparency / audit.
         refund_total=Sum('refund_total'),
         chargeback=Sum('chargeback'),
         violation=Sum('violation'),
@@ -200,7 +206,8 @@ def _compute_daily_pnl_impl(start_date, end_date):
         result[d]['   Customer Shipping Fee Offset'] = r['customer_shipping_fee_offset'] or ZERO
         result[d]['   Customer-Paid Shipping Fee'] = r['customer_paid_shipping_fee'] or ZERO
         result[d]['   Customer-Paid Shipping Refund'] = r['customer_paid_shipping_refund'] or ZERO
-        result[d]['   Seller Shipping Fee Discount'] = r['seller_shipping_fee_discount'] or ZERO
+        # `seller_shipping_fee_discount` not surfaced — see Settlement annotate
+        # comment for the double-count rationale (Jack 2026-06-30).
         result[d]['   Co-funded Promotion (seller-funded)'] = r['cofunded_promo'] or ZERO
         result[d]['   Co-funded Promotion Campaign Period Fee'] = r['cofunded_promo_campaign_fee'] or ZERO
         result[d]['   FBT Warehouse Service Fee'] = r['fbt_warehouse'] or ZERO
@@ -369,7 +376,9 @@ def _compute_daily_pnl_impl(start_date, end_date):
                     '   TT Shop Shipping Incentive', '   Shipping Fee Subsidy',
                     '   Customer Shipping Fee Offset',
                     '   Customer-Paid Shipping Fee', '   Customer-Paid Shipping Refund',
-                    '   Seller Shipping Fee Discount',
+                    # '   Seller Shipping Fee Discount' removed 2026-06-30 — its
+                    # value is already baked into the NET Customer-Paid Shipping
+                    # Fee column. Including it double-counted the seller portion.
                     '   Cost to Ship to FBT', '   Cost to Ship to Customer',
                     '   Logistics Reimbursement',
                     '   FBT Hub Placement Fee', '   FBT Storage Fee',
@@ -447,7 +456,8 @@ PNL_ROW_LAYOUT = [
     ('   Customer Shipping Fee Offset', 'row'),
     ('   Customer-Paid Shipping Fee', 'row'),
     ('   Customer-Paid Shipping Refund', 'row'),
-    ('   Seller Shipping Fee Discount', 'row'),
+    # Seller Shipping Fee Discount removed 2026-06-30 — was double-counting the
+    # seller portion already included in net Customer-Paid Shipping Fee.
     ('   Cost to Ship to FBT', 'row'),
     ('   Cost to Ship to Customer', 'row'),
     ('   Logistics Reimbursement', 'row'),

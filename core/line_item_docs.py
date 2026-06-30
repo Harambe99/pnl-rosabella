@@ -98,12 +98,9 @@ LINE_ITEM_DOCS = {
         'formula': 'sum by Statement date. Negative.',
         'notes': 'Pairs with Customer-Paid Shipping Fee on the refund side.',
     },
-    'Seller Shipping Fee Discount': {
-        'what': 'Seller-funded shipping discount given to customers.',
-        'source': 'Settlement XLSX → Seller shipping fee discount column.',
-        'formula': 'sum by Statement date. Negative.',
-        'notes': 'When the seller offers a shipping discount as part of a promotion. Sub-component of Shipping parent.',
-    },
+    # Seller Shipping Fee Discount removed 2026-06-30 — per Jack, the value is
+    # already netted into the "Customer-paid shipping fee" column (NET) we book.
+    # Booking it separately was double-counting the seller portion.
 
     # ============================ FULFILLMENT — non-Settlement shipping costs ============================
     'Cost to Ship to FBT': {

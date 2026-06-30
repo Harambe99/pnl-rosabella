@@ -249,7 +249,6 @@ LINE_ITEM_TO_SOURCE = {
     'Customer Shipping Fee Offset': 'Source — Settlement',
     'Customer-Paid Shipping Fee': 'Source — Settlement',
     'Customer-Paid Shipping Refund': 'Source — Settlement',
-    'Seller Shipping Fee Discount': 'Source — Settlement',
     'Logistics Reimbursement': 'Source — Settlement',
     'FBT Warehouse Compensation': 'Source — Settlement',
     'FBT Warehouse Service Fee': 'Source — Settlement',
