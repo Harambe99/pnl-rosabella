@@ -196,6 +196,15 @@ def monthly_inputs(request):
                 MonthlyInputAudit.objects.create(month=month, field_name=fname,
                                                  old_value=old, new_value=new)
             if changes:
+                # Bump the data version so compute_daily_pnl's LocMemCache
+                # invalidates. Without this, dashboard would keep serving
+                # stale numbers until the next file import (or 24h TTL).
+                ImportLog.objects.create(
+                    importer='monthly_inputs_edit',
+                    filename=f'{month} (manual edit)',
+                    rows_added=len(changes),
+                    notes='; '.join(f'{f}: {o} → {n}' for f, o, n in changes[:10]),
+                )
                 messages.success(request, f'{month}: {len(changes)} field(s) updated.')
             else:
                 messages.info(request, f'{month}: no changes (all fields empty or unchanged).')
