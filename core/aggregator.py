@@ -319,19 +319,16 @@ def _compute_daily_pnl_impl(start_date, end_date):
                 val = getattr(mi_for_day, field) or ZERO
                 result[d][label] = Decimal(sign) * val / dim
 
-        # ---- FBT overlay: use Payment Cycle schedule if available ----
-        services_period = sched_map.get(dest_mkey)
-        if services_period:
-            # Settlement-date methodology: the previous services month's bill
-            # lands in THIS month (the destination). Flat-spread across days.
-            mi_services = mi_map.get(services_period)
-            if mi_services:
-                for label, (field, sign) in FBT_OVERLAY.items():
-                    val = getattr(mi_services, field) or ZERO
-                    result[d][label] = Decimal(sign) * val / dim
-        elif mi_for_day:
-            # No Payment Cycle schedule uploaded for this destination month yet
-            # → fall back to legacy flat-spread within the services month.
+        # ---- FBT overlay: services-month attribution ----
+        # REVERTED (Jul 2026) per Jack: FBT detail lines (Hub Placement,
+        # Storage, Routing Non-Compliance, Incidents, Delayed Response,
+        # Disposal, etc.) now attribute to the SERVICES month — the month
+        # the warehouse work happened — NOT the month TikTok charged.
+        # This matches how Jack reads the P&L side-by-side with TikTok's
+        # own billing period grouping. FBTBillingSchedule table + Payment
+        # Cycle upload are still in the codebase in case we ever need to
+        # switch back, but they no longer drive attribution.
+        if mi_for_day:
             for label, (field, sign) in FBT_OVERLAY.items():
                 val = getattr(mi_for_day, field) or ZERO
                 result[d][label] = Decimal(sign) * val / dim

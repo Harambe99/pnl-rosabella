@@ -138,81 +138,82 @@ LINE_ITEM_DOCS = {
 
     # ============================ FBT BILLING (TikTok-billed monthly fees) ============================
     # Each of these 12 lines is sourced from the FBT Billing XLSX (Logistics
-    # Cost Overview) for line-item breakdowns, then attributed to the month
-    # TikTok actually charged the bill — looked up in the FBT Payment Cycle
-    # XLSX. The destination month's days share the cost equally so the daily
-    # P&L stays smooth (no day-1 spikes). Per Lindsay 2026-06-26.
+    # Cost Overview) per services month. The month's days share the cost
+    # equally so the daily P&L stays smooth (no day-1 spikes).
+    # Reverted from settlement-date attribution back to services-month per
+    # Jack 2026-07-01 — the FBT detail lands in the month the warehouse work
+    # happened (matches TikTok's own billing period grouping).
     'FBT Hub Placement Fee': {
         'what': 'Cost charged by TikTok for placing your stock at FBT hub.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month). The destination month is the month of the statement_date when TikTok charged that period. Falls back to flat-spread within the services month if no Payment Cycle row is uploaded yet.",
-        'notes': 'Settlement-date methodology. One of 12 TikTok-billed FBT sub-fees that move to the destination month per the Payment Cycle file.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month attribution per Jack 2026-07-01. FBT detail lines land in the month the warehouse work happened (matches TikTok's billing period grouping). Previously used settlement-date via Payment Cycle — reverted on Jack's request.',
     },
     'FBT Storage Fee': {
         'what': 'FBT warehouse storage fee.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month). Destination month = month of TikTok's statement_date for the services period.",
-        'notes': 'Settlement-date methodology — re-attributed to the month TikTok actually charged the bill.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened. Destination month = month of TikTok's statement_date for the services period.",
+        'notes': 'Services-month attribution per Jack 2026-07-01. Flat-spread within the services month.',
     },
     'FBT Inbound Shipping Fee': {
         'what': 'Inbound shipping fee TikTok charges when they arrange the inbound.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Usually $0 for shops that arrange their own inbound shipping. Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Usually $0 for shops that arrange their own inbound shipping. Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Inbound Incidents Fee': {
         'what': 'Penalty fee for inbound shipment incidents (e.g., wrong labeling, damage).',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Booking Non-Compliance': {
         'what': 'Penalty fee when inbound booking rules aren\'t followed.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Routing Non-Compliance': {
         'what': 'Penalty fee when inbound routing requirements aren\'t followed.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Outbound No-Show': {
         'what': 'Penalty fee for missed outbound pickup appointments.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Delayed Response Fee': {
         'what': 'Penalty fee for delayed responses to FBT requests.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Disposal Fee': {
         'what': 'Cost to dispose of obsolete or returned inventory.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Return Shipping (VAS)': {
         'what': 'Value-Added Service fee for return shipping handling.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Return to Seller Handling': {
         'what': 'Fee for handling returns sent back to the seller.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Inbound Return Operation': {
         'what': 'Operation fee for processing inbound returns.',
-        'source': 'FBT Billing XLSX (per-line $) + FBT Payment Cycle XLSX (statement_date).',
-        'formula': "-1 × (services month's value ÷ days in destination month).",
-        'notes': 'Settlement-date methodology.',
+        'source': 'FBT Billing XLSX (per-line $ per services month).',
+        'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
+        'notes': 'Services-month flat-spread per Jack 2026-07-01.',
     },
     'FBT Warehouse Compensation': {
         'what': 'TikTok\'s compensation for FBT warehouse damage to your stock.',
