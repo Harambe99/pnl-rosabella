@@ -621,6 +621,31 @@ def import_seller_shipping(file_obj, filename=''):
             except Exception: pass
         return _to_date(s)
 
+    # Materialize rows so we can pass over them twice: once for pre-clean,
+    # once for actual import.
+    all_rows = list(reader)
+
+    # Pre-clean: if this file has REAL shipment_numbers (distinct from
+    # reference_numbers on the same row), any existing DB rows keyed by
+    # reference_number (from an older upload that didn't have the shipment_number
+    # column) are the SAME physical shipments — leaving them in place would
+    # double-count. Delete those old-format duplicates before insert.
+    if c_ship_num >= 0 and c_ref >= 0 and c_ship_num != c_ref:
+        new_refs_with_distinct_ship_num = set()
+        for row in all_rows:
+            if len(row) <= max(c_ship_num, c_ref): continue
+            sn = _clean_str(row[c_ship_num])
+            rn = _clean_str(row[c_ref])
+            if sn and rn and sn != rn:
+                new_refs_with_distinct_ship_num.add(rn)
+        if new_refs_with_distinct_ship_num:
+            # Old-format entries have shipment_number == reference_number.
+            # Delete those matching this file's refs.
+            SellerShipmentCost.objects.filter(
+                shipment_number__in=new_refs_with_distinct_ship_num,
+                reference_number__in=new_refs_with_distinct_ship_num,
+            ).extra(where=['shipment_number = reference_number']).delete()
+
     existing = set(SellerShipmentCost.objects.values_list('shipment_number', flat=True))
     chunk = []
     CHUNK_SIZE = 2000
@@ -644,7 +669,7 @@ def import_seller_shipping(file_obj, filename=''):
             )
         return len(c)
 
-    for row in reader:
+    for row in all_rows:
         if len(row) <= c_key: continue
         key = _clean_str(row[c_key])
         if not key: continue
