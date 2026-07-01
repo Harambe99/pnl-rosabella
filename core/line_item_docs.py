@@ -147,7 +147,7 @@ LINE_ITEM_DOCS = {
         'what': 'Cost charged by TikTok for placing your stock at FBT hub.',
         'source': 'FBT Billing XLSX (per-line $ per services month).',
         'formula': "-1 × (monthly value ÷ days in services month). Flat-spread within the services month the FBT work happened.",
-        'notes': 'Services-month attribution per Jack 2026-07-01. FBT detail lines land in the month the warehouse work happened (matches TikTok's billing period grouping). Previously used settlement-date via Payment Cycle — reverted on Jack's request.',
+        'notes': 'Services-month attribution per Jack 2026-07-01. FBT detail lines land in the month the warehouse work happened (matches TikTok\'s billing period grouping). Previously used settlement-date via Payment Cycle — reverted on Jack\'s request.',
     },
     'FBT Storage Fee': {
         'what': 'FBT warehouse storage fee.',
