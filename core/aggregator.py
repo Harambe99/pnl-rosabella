@@ -186,6 +186,9 @@ def _compute_daily_pnl_impl(start_date, end_date):
         fbt_warehouse_comp=Sum('fbt_warehouse_comp'),
         rebate=Sum('rebate'),
         unclassified=Sum('unclassified'),
+        smart_promo_fee=Sum('smart_promo_fee'),
+        smart_promo_campaign_period_fee=Sum('smart_promo_campaign_period_fee'),
+        fbt_overall_merchant_subsidy=Sum('fbt_overall_merchant_subsidy'),
     )
     for r in s_qs:
         d = r['statement_date']
@@ -221,6 +224,11 @@ def _compute_daily_pnl_impl(start_date, end_date):
         result[d]['   FBT Warehouse Compensation'] = r['fbt_warehouse_comp'] or ZERO
         result[d]['   Rebate'] = r['rebate'] or ZERO
         result[d]['   Unclassified Adjustments'] = r['unclassified'] or ZERO
+        # New (Jul 2026): sub-components of TikTok's Shipping + Fees parent aggregates.
+        # See migration 0012 for the rationale.
+        result[d]['   Smart Promotion Fee'] = r['smart_promo_fee'] or ZERO
+        result[d]['   Smart Promotion Campaign Period Fee'] = r['smart_promo_campaign_period_fee'] or ZERO
+        result[d]['   FBT Overall Merchant Subsidy'] = r['fbt_overall_merchant_subsidy'] or ZERO
 
     # TikTok Shop Analytics GMV — kept as a REFERENCE line only.
     # Method A (computed Gross - Discount from Manage Orders) is now the
@@ -394,7 +402,10 @@ def _compute_daily_pnl_impl(start_date, end_date):
                     '   Referral Fee', '   Refund Admin Fee', '   Campaign Service Fee',
                     '   Violation Fee', '   TikTok Shop Reimb', '   Rebate',
                     '   Co-funded Promotion (seller-funded)',
-                    '   Co-funded Promotion Campaign Period Fee']
+                    '   Co-funded Promotion Campaign Period Fee',
+                    '   Smart Promotion Fee',
+                    '   Smart Promotion Campaign Period Fee',
+                    '   FBT Overall Merchant Subsidy']
         row['GROSS PROFIT'] = sum((row.get(x, ZERO) for x in gp_items), ZERO)
 
         # Ad spend: raw cost minus TBSM Savings (FIFO engine) minus TT Promo Credits.
@@ -457,6 +468,7 @@ PNL_ROW_LAYOUT = [
     ('   TT Shop Shipping Incentive', 'row'),
     ('   TT Shop Shipping Incentive Refund', 'row'),
     ('   Shipping Fee Subsidy', 'row'),
+    ('   FBT Overall Merchant Subsidy', 'row'),  # New Jul 2026 — 8th component of Shipping parent
     ('   Customer Shipping Fee Offset', 'row'),
     ('   Customer-Paid Shipping Fee', 'row'),
     ('   Customer-Paid Shipping Refund', 'row'),
@@ -488,6 +500,8 @@ PNL_ROW_LAYOUT = [
     ('   Rebate', 'row'),
     ('   Co-funded Promotion (seller-funded)', 'row'),
     ('   Co-funded Promotion Campaign Period Fee', 'row'),
+    ('   Smart Promotion Fee', 'row'),  # New Jul 2026 — enabled Smart Promos in June
+    ('   Smart Promotion Campaign Period Fee', 'row'),  # New Jul 2026
     ('GROSS PROFIT', 'total'),
     ('', 'blank'),
     ('MARKETING', 'section'),

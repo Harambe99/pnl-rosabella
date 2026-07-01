@@ -270,6 +270,9 @@ LINE_ITEM_TO_SOURCE = {
     'Rebate': 'Source — Settlement',
     'Co-funded Promotion (seller-funded)': 'Source — Settlement',
     'Co-funded Promotion Campaign Period Fee': 'Source — Settlement',
+    'Smart Promotion Fee': 'Source — Settlement',
+    'Smart Promotion Campaign Period Fee': 'Source — Settlement',
+    'FBT Overall Merchant Subsidy': 'Source — Settlement',
     'Chargebacks': 'Source — Settlement',
     'Unclassified Adjustments': 'Source — Settlement',
     'Platform (Affiliate Commission)': 'Source — Settlement',
@@ -469,8 +472,9 @@ def _build_source_sheets(wb, start_date, end_date, styles):
               'Co-funded Promo (seller)', 'Co-funded Promo Campaign Fee',
               'Refund Total', 'Chargeback', 'Violation Fee', 'TT Shop Reimb',
               'Logistics Reimb', 'FBT Warehouse Service Fee', 'FBT Warehouse Comp',
-              'Rebate', 'Unclassified Adjustment']
-    s_widths = [14, 16, 22, 18, 22, 6] + [14]*25
+              'Rebate', 'Unclassified Adjustment',
+              'Smart Promo Fee', 'Smart Promo Camp Fee', 'FBT Merchant Subsidy']
+    s_widths = [14, 16, 22, 18, 22, 6] + [14]*28
     s_rows = []
     if BIG_SHEETS_ENABLED:
         s_qs = SettlementRow.objects.filter(
@@ -485,6 +489,7 @@ def _build_source_sheets(wb, start_date, end_date, styles):
             'cofunded_promo', 'cofunded_promo_campaign_fee', 'refund_total',
             'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
             'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
+            'smart_promo_fee', 'smart_promo_campaign_period_fee', 'fbt_overall_merchant_subsidy',
         ).order_by('statement_date', 'order_id')
         s_rows = list(s_qs)
     if s_rows:

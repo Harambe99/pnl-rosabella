@@ -232,6 +232,10 @@ def import_settlement(file_obj, filename=''):
     c_cof_camp = col('Co-funded Promotion campaign period fee')
     c_seller_ship_disc = col('Seller shipping fee discount')
     c_camp = col('Campaign service fee')
+    # New Settlement columns (Smart Promotions + FBT merchant subsidy) — Jul 2026.
+    c_smart_fee = col('Smart Promotion fee')
+    c_smart_camp = col('Smart Promotion campaign period fee')
+    c_fbt_merch_sub = col('FBT overall merchant subsidy')
     c_adj = col('Adjustment amount')
 
     if c_oid < 0 or c_type < 0 or c_stid < 0:
@@ -260,6 +264,7 @@ def import_settlement(file_obj, filename=''):
         'seller_shipping_fee_discount', 'refund_total',
         'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
         'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
+        'smart_promo_fee', 'smart_promo_campaign_period_fee', 'fbt_overall_merchant_subsidy',
         'quantity',
     ]
 
@@ -278,6 +283,7 @@ def import_settlement(file_obj, filename=''):
         'seller_shipping_fee_discount', 'refund_total',
         'chargeback', 'violation', 'tt_shop_reimb', 'logistics_reimb',
         'fbt_warehouse', 'fbt_warehouse_comp', 'rebate', 'unclassified',
+        'smart_promo_fee', 'smart_promo_campaign_period_fee', 'fbt_overall_merchant_subsidy',
     ]
 
     def flush_settle(c):
@@ -338,6 +344,10 @@ def import_settlement(file_obj, filename=''):
             sr.cofunded_promo = _to_dec(row[c_cof]) if c_cof >= 0 else 0
             sr.cofunded_promo_campaign_fee = _to_dec(row[c_cof_camp]) if c_cof_camp >= 0 else 0
             sr.seller_shipping_fee_discount = _to_dec(row[c_seller_ship_disc]) if c_seller_ship_disc >= 0 else 0
+            # New columns (Jul 2026) — default to 0 for older files that don't have them.
+            sr.smart_promo_fee = _to_dec(row[c_smart_fee]) if c_smart_fee >= 0 else 0
+            sr.smart_promo_campaign_period_fee = _to_dec(row[c_smart_camp]) if c_smart_camp >= 0 else 0
+            sr.fbt_overall_merchant_subsidy = _to_dec(row[c_fbt_merch_sub]) if c_fbt_merch_sub >= 0 else 0
             sr.refund_total = (
                 _to_dec(row[c_gross_ref]) if c_gross_ref >= 0 else 0) + (
                 _to_dec(row[c_disc_ref]) if c_disc_ref >= 0 else 0)

@@ -80,6 +80,12 @@ LINE_ITEM_DOCS = {
         'formula': 'sum by Statement date. Negative (reduces seller\'s net).',
         'notes': 'Pairs with TT Shop Shipping Incentive on the refund side. Per Jack 2026-06-30. Typically small (~$0-1.5k/month). Only populates after re-uploading Settlement files post the 0011 migration.',
     },
+    'FBT Overall Merchant Subsidy': {
+        'what': 'TikTok subsidy credited to the seller for FBT-related activity.',
+        'source': 'Settlement XLSX → FBT overall merchant subsidy column.',
+        'formula': 'sum by Statement date. Positive (credit to seller).',
+        'notes': '8th sub-component of TikTok\'s Shipping parent aggregate — started firing in June 2026. Before that, this column was always $0. Only populates after re-uploading Settlement files post the 0012 migration.',
+    },
     'Shipping Fee Subsidy': {
         'what': 'A separate subsidy program for seller-shipped orders.',
         'source': 'Settlement XLSX → Shipping fee subsidy column.',
@@ -269,6 +275,18 @@ LINE_ITEM_DOCS = {
         'source': 'Settlement XLSX → Co-funded Promotion campaign period fee column on Order rows.',
         'formula': 'sum by Statement date. Negative.',
         'notes': 'Separate from the seller-funded discount portion — this is the campaign participation fee.',
+    },
+    'Smart Promotion Fee': {
+        'what': 'Per-order fee TikTok charges when Smart Promotions is enabled on your account.',
+        'source': 'Settlement XLSX → Smart Promotion fee column on Order rows.',
+        'formula': 'sum by Statement date. Negative.',
+        'notes': 'Opted into Smart Promotions in June 2026. Before that, this column was always $0. New sub-component of TikTok\'s Fees aggregate.',
+    },
+    'Smart Promotion Campaign Period Fee': {
+        'what': 'Recurring fee during Smart Promotion campaign windows.',
+        'source': 'Settlement XLSX → Smart Promotion campaign period fee column on Order rows.',
+        'formula': 'sum by Statement date. Negative.',
+        'notes': 'Structural cousin of Co-funded Promotion Campaign Period Fee. Started firing June 2026 alongside Smart Promotion Fee.',
     },
     'Unclassified Adjustments': {
         'what': 'Catch-all bucket for Settlement adjustment Types we don\'t have explicit mappings for.',

@@ -80,6 +80,13 @@ class SettlementRow(models.Model):
     rebate = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     unclassified = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
+    # Added Jul 2026 per new TikTok Settlement columns.
+    # Smart Promotions (opt-in in June): per-order fee + recurring campaign-period fee.
+    # FBT overall merchant subsidy: new 8th sub-component of Shipping parent.
+    smart_promo_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    smart_promo_campaign_period_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fbt_overall_merchant_subsidy = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
     source_file = models.CharField(max_length=255, blank=True)
     imported_at = models.DateTimeField(auto_now_add=True)
 
