@@ -869,15 +869,34 @@ def import_ad_transactions(file_obj, filename=''):
 
     required = {'Payments', 'Promotions', 'Others'}
     actual = set(xl.sheet_names)
-    if not required.issubset(actual):
-        return {'added': 0, 'skipped': 0,
-                'errors': [f'Expected sheets {required}; got {actual}']}
+
+    # Two supported layouts:
+    #   (A) LEGACY 3-sheet workbook: Payments / Promotions / Others tabs.
+    #   (B) NEW single-sheet export from Ads Manager (e.g. sheet named "sheet1")
+    #       — one flat table with "Transaction type" column, route rows to a
+    #       synthetic sheet bucket:
+    #         Transaction type == 'Promotions'                -> Promotions
+    #         Transaction type == 'General' (Bill payment)    -> Payments
+    #         anything else                                    -> Others
+    if required.issubset(actual):
+        sheets_to_process = [('Payments', 'Payments'),
+                             ('Promotions', 'Promotions'),
+                             ('Others', 'Others')]
+    else:
+        # Single-sheet mode — first sheet, route by transaction type.
+        sheets_to_process = [(xl.sheet_names[0], None)]  # bucket=None means route per-row
+
+    def route_bucket(txn_type_str):
+        s = (txn_type_str or '').strip().lower()
+        if s == 'promotions': return 'Promotions'
+        if s == 'general': return 'Payments'
+        return 'Others'
 
     buf = []
     min_d = None
     max_d = None
-    for sheet in ['Payments', 'Promotions', 'Others']:
-        df = pd.read_excel(xl, sheet)
+    for sheet_name, bucket in sheets_to_process:
+        df = pd.read_excel(xl, sheet_name)
         # Normalize column lookup
         cols = {c.strip(): c for c in df.columns}
         def col(name):
@@ -888,8 +907,9 @@ def import_ad_transactions(file_obj, filename=''):
         c_id = col('Transaction ID')
         c_amt = col('Amount')
         c_type = col('Transaction type')
+        c_subtype = col('Transaction subtype')
         c_status = col('Status')
-        c_details = col('Details')
+        c_details = col('Details') or col('Description')
         c_typelabel = col('Type')
 
         if not c_time or not c_amt:
@@ -901,11 +921,13 @@ def import_ad_transactions(file_obj, filename=''):
             txn_id = str(row.get(c_id, '') or '').strip() if c_id else ''
             amount = _to_dec(row.get(c_amt))
             txn_type = (str(row.get(c_type, '') or '').strip() if c_type else '')
+            subtype = (str(row.get(c_subtype, '') or '').strip() if c_subtype else '')
             status = (str(row.get(c_status, '') or '').strip() if c_status else '')
             details = (str(row.get(c_details, '') or '').strip() if c_details else '')
-            type_label = (str(row.get(c_typelabel, '') or '').strip() if c_typelabel else '')
+            type_label = (str(row.get(c_typelabel, '') or '').strip() if c_typelabel else subtype)
+            row_bucket = bucket if bucket else route_bucket(txn_type)
             buf.append(AdTransaction(
-                txn_id=txn_id, txn_time=txn_time.to_pydatetime(), sheet=sheet,
+                txn_id=txn_id, txn_time=txn_time.to_pydatetime(), sheet=row_bucket,
                 txn_type=txn_type, status=status, amount=amount,
                 details=details, type_label=type_label, source_file=filename,
             ))

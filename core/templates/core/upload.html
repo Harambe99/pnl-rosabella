@@ -90,7 +90,7 @@
       {% csrf_token %}
       <input type="hidden" name="kind" value="ad_transactions">
       <h5>7. Ad Transactions</h5>
-      <small class="text-muted mb-2">xlsx from Ads Manager → Tools → Transactions (3 sheets: Payments / Promotions / Others). Powers the Ad Discounts ledger + TBSM Savings &amp; TT Promo Credits lines.</small>
+      <small class="text-muted mb-2">xlsx from Ads Manager → Tools → Transactions. Accepts both the 3-sheet (Payments / Promotions / Others) format and the newer single-sheet export (rows routed by "Transaction type"). Powers the Ad Discounts ledger + TBSM Savings &amp; TT Promo Credits lines.</small>
       <input type="file" name="file" accept=".xlsx" class="form-control mb-2" required>
       <button class="btn btn-primary btn-sm" type="submit">Upload</button>
     </form>
