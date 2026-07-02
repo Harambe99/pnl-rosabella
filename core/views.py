@@ -383,13 +383,21 @@ def _build_source_sheets(wb, start_date, end_date, styles):
     o_rows = []
     shipped_canceled_ids = set()
     if BIG_SHEETS_ENABLED:
-        # Map order_id -> statement_date for orders settled in range
-        order_stmt_qs = SettlementRow.objects.filter(
+        # Compute MIN(statement_date) over ALL history per order (matches the
+        # aggregator's CTE fix from 2026-07-01 — commit 86a9d9b). Then filter
+        # to orders whose canonical (earliest) statement_date falls in range.
+        # Previous version used MIN over the requested range only, which caused
+        # orders that first settled pre-range but had rows in range to show up
+        # here even though the aggregator excluded them → export/dashboard drift.
+        all_mins = SettlementRow.objects.filter(
             row_type='Order',
-            statement_date__gte=start_date,
-            statement_date__lte=end_date,
+            statement_date__isnull=False,
         ).values('order_id').annotate(stmt=_Min('statement_date'))
-        order_stmt_map = {r['order_id']: r['stmt'] for r in order_stmt_qs}
+        order_stmt_map = {
+            r['order_id']: r['stmt']
+            for r in all_mins
+            if start_date <= r['stmt'] <= end_date
+        }
 
         if order_stmt_map:
             raw_qs = Order.objects.filter(
