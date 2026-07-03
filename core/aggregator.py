@@ -37,53 +37,64 @@ def _data_version():
         return 0
 
 
-def compute_daily_pnl(start_date, end_date, use_cache=True):
+def compute_daily_pnl(start_date, end_date, use_cache=True, methodology='statement_date'):
     """Cached + exception-guarded entry point. Wraps _compute_daily_pnl_impl
-    with a per-(range, data-version) cache. If the inner compute raises (DB
-    error, OOM unwind, anything), we log the full traceback and return an
+    with a per-(range, data-version, methodology) cache. If the inner compute raises
+    (DB error, OOM unwind, anything), we log the full traceback and return an
     empty-but-valid result so the page can still render with zeros instead of
-    a generic 500. The Render logs will show what actually failed."""
+    a generic 500. The Render logs will show what actually failed.
+
+    methodology:
+      • 'statement_date' (Jack's / accounting view — DEFAULT): revenue and
+        Settlement fees attribute to the day TikTok processed the settlement.
+      • 'order_created_date' (Luca's / operational view): revenue and fees
+        attribute to the day the customer placed the order.
+    """
     if not use_cache:
         try:
-            return _compute_daily_pnl_impl(start_date, end_date)
+            return _compute_daily_pnl_impl(start_date, end_date, methodology)
         except Exception:
             import logging
             logging.getLogger('core').exception(
-                'compute_daily_pnl crashed for %s..%s', start_date, end_date)
+                'compute_daily_pnl crashed for %s..%s methodology=%s', start_date, end_date, methodology)
             return {d: {} for d in date_range(start_date, end_date)}
     from django.core.cache import cache
-    key = f'daily_pnl:v{_data_version()}:{start_date.isoformat()}:{end_date.isoformat()}'
+    key = f'daily_pnl:v{_data_version()}:{start_date.isoformat()}:{end_date.isoformat()}:{methodology}'
     cached = cache.get(key)
     if cached is not None:
         return cached
     try:
-        result = _compute_daily_pnl_impl(start_date, end_date)
+        result = _compute_daily_pnl_impl(start_date, end_date, methodology)
     except Exception:
         import logging
         logging.getLogger('core').exception(
-            'compute_daily_pnl crashed for %s..%s', start_date, end_date)
+            'compute_daily_pnl crashed for %s..%s methodology=%s', start_date, end_date, methodology)
         # Return an empty-but-valid skeleton — don't cache it (transient).
         return {d: {} for d in date_range(start_date, end_date)}
     cache.set(key, result, timeout=60 * 60 * 24)
     return result
 
 
-def _compute_daily_pnl_impl(start_date, end_date):
+def _compute_daily_pnl_impl(start_date, end_date, methodology='statement_date'):
     """Returns a dict {date: {row_label: amount}} for the given range.
 
-    Attribution methodology (settlement-date basis, per Lindsay + Jack 2026-06-25):
-      • Gross Sales / Promos / COGS / Refunds → SettlementRow.statement_date
-        of the order's primary 'Order' settlement row (joined via order_id).
-      • All TikTok Shop fees (Affiliate, Referral, FBT fee, Co-funded promo, etc.)
-        → SettlementRow.statement_date.
-      • Cost to Ship to Customer → SellerShipmentCost.shipped_date.
-      • Ad Spend / GMV reference / Ad Ledger → unchanged (already daily).
-      • Monthly Inputs (manual entries, FBT Billing) → unchanged (flat-spread).
+    Two attribution methodologies supported (see compute_daily_pnl docstring):
 
-    Orders without a settled 'Order' row in range are NOT counted — they haven't
-    cleared TikTok's settlement window yet. They'll appear once they settle and
-    a fresh settlement file is uploaded.
+    Statement Date methodology ('statement_date' — Jack, DEFAULT, per Lindsay + Jack 2026-06-25):
+      • Gross Sales / Promos / COGS → Order × Settlement JOIN, grouped by MIN(statement_date)
+      • Refunds + all Settlement fees → SettlementRow.statement_date
+      • Cost to Ship to Customer → SellerShipmentCost.shipped_date
+
+    Order Created Date methodology ('order_created_date' — Luca, per 2026-07-03):
+      • Gross Sales / Promos / COGS → Order.created_date (no Settlement JOIN)
+      • Refunds + all Settlement fees → SettlementRow.order_created_date
+      • Cost to Ship to Customer → SellerShipmentCost.order_date
+
+    Both methodologies share (unchanged):
+      • Ad Spend / GMV reference / Ad Ledger → daily
+      • FBT detail + all Monthly Input manual entries → services month flat-spread
     """
+    use_order_date = (methodology == 'order_created_date')
     dates = date_range(start_date, end_date)
     result = {d: {} for d in dates}
 
@@ -100,47 +111,66 @@ def _compute_daily_pnl_impl(start_date, end_date):
     # that it actually shipped). The CASE expression handles that inline.
     from django.db import connection
     with connection.cursor() as cur:
-        # Single CTE-driven aggregation. We use a LEFT JOIN against the
-        # "shipped_canceled" set instead of a correlated IN-subquery so
-        # Postgres uses a hash join (fast) rather than a nested-loop lookup
-        # per row (catastrophic on 200k orders).
-        # MIN(statement_date) must be computed over ALL history (no date filter
-        # inside the CTE) so the order's attribution is STABLE regardless of
-        # which date range we're computing. Otherwise the same order moves
-        # between months depending on whether you query May-only vs full-year
-        # (a settlement-row in Mar + another in May → MIN-in-May-range = May,
-        # MIN-in-full-year = Mar → different attribution → dashboard ≠ export).
-        # We filter at the OUTER query so each order has exactly one canonical
-        # statement_date forever.
-        cur.execute(
-            '''
-            WITH order_stmt AS (
-                SELECT order_id, MIN(statement_date) AS stmt_date
-                FROM core_settlementrow
-                WHERE row_type = 'Order'
-                  AND statement_date IS NOT NULL
-                GROUP BY order_id
-            ),
-            shipped_canceled AS (
-                SELECT DISTINCT order_id
-                FROM core_settlementrow
-                WHERE row_type = 'Order' AND fbt_fee < 0
-            )
-            SELECT
-                os.stmt_date,
-                SUM(o.gross_sale)       AS gross,
-                SUM(o.seller_discount)  AS promos,
-                SUM(CASE
-                    WHEN LOWER(COALESCE(o.status, '')) <> 'canceled'
-                         OR sc.order_id IS NOT NULL
-                    THEN o.cogs ELSE 0
-                END) AS cogs
-            FROM core_order o
-            INNER JOIN order_stmt os ON os.order_id = o.order_id
-            LEFT  JOIN shipped_canceled sc ON sc.order_id = o.order_id
-            WHERE os.stmt_date BETWEEN %s AND %s
-            GROUP BY os.stmt_date
-            ''', [start_date, end_date])
+        if use_order_date:
+            # Order Created Date methodology (Luca's view) — group Gross/Promos/COGS
+            # directly by Order.created_date. No Settlement JOIN needed since we're
+            # not gating on "did it settle" — we just want the pure activity view.
+            cur.execute(
+                '''
+                WITH shipped_canceled AS (
+                    SELECT DISTINCT order_id
+                    FROM core_settlementrow
+                    WHERE row_type = 'Order' AND fbt_fee < 0
+                )
+                SELECT
+                    o.created_date,
+                    SUM(o.gross_sale)       AS gross,
+                    SUM(o.seller_discount)  AS promos,
+                    SUM(CASE
+                        WHEN LOWER(COALESCE(o.status, '')) <> 'canceled'
+                             OR sc.order_id IS NOT NULL
+                        THEN o.cogs ELSE 0
+                    END) AS cogs
+                FROM core_order o
+                LEFT JOIN shipped_canceled sc ON sc.order_id = o.order_id
+                WHERE o.created_date BETWEEN %s AND %s
+                GROUP BY o.created_date
+                ''', [start_date, end_date])
+        else:
+            # Statement Date methodology (Jack's view — DEFAULT).
+            # Single CTE-driven aggregation. LEFT JOIN against "shipped_canceled"
+            # set instead of correlated IN-subquery so Postgres uses a hash join.
+            # MIN(statement_date) is computed over ALL history (no inner date filter)
+            # so each order's attribution is STABLE regardless of query range.
+            cur.execute(
+                '''
+                WITH order_stmt AS (
+                    SELECT order_id, MIN(statement_date) AS stmt_date
+                    FROM core_settlementrow
+                    WHERE row_type = 'Order'
+                      AND statement_date IS NOT NULL
+                    GROUP BY order_id
+                ),
+                shipped_canceled AS (
+                    SELECT DISTINCT order_id
+                    FROM core_settlementrow
+                    WHERE row_type = 'Order' AND fbt_fee < 0
+                )
+                SELECT
+                    os.stmt_date,
+                    SUM(o.gross_sale)       AS gross,
+                    SUM(o.seller_discount)  AS promos,
+                    SUM(CASE
+                        WHEN LOWER(COALESCE(o.status, '')) <> 'canceled'
+                             OR sc.order_id IS NOT NULL
+                        THEN o.cogs ELSE 0
+                    END) AS cogs
+                FROM core_order o
+                INNER JOIN order_stmt os ON os.order_id = o.order_id
+                LEFT  JOIN shipped_canceled sc ON sc.order_id = o.order_id
+                WHERE os.stmt_date BETWEEN %s AND %s
+                GROUP BY os.stmt_date
+                ''', [start_date, end_date])
         for stmt_d, gross, promos, cogs in cur.fetchall():
             if stmt_d not in result:
                 continue
@@ -149,12 +179,13 @@ def _compute_daily_pnl_impl(start_date, end_date):
             row['Less: Promos & Discounts'] = Decimal(promos or 0)
             row['COGS'] = -Decimal(cogs or 0)
 
-    # Settlement aggregations — group by statement_date (was order_created_date).
-    # Every settlement row carries its own statement_date so refunds, fees, and
-    # adjustments naturally land on the day TikTok processed them.
+    # Settlement aggregations — group by either statement_date (Jack) or
+    # order_created_date (Luca), based on the methodology parameter.
+    # Every SettlementRow carries both columns; we just pick which to group by.
+    s_date_field = 'order_created_date' if use_order_date else 'statement_date'
     s_qs = SettlementRow.objects.filter(
-        statement_date__gte=start_date, statement_date__lte=end_date
-    ).values('statement_date').annotate(
+        **{f'{s_date_field}__gte': start_date, f'{s_date_field}__lte': end_date}
+    ).values(s_date_field).annotate(
         referral=Sum('referral_fee'),
         affiliate=Sum('affiliate_total'),
         campaign=Sum('campaign_fee'),
@@ -191,8 +222,9 @@ def _compute_daily_pnl_impl(start_date, end_date):
         fbt_overall_merchant_subsidy=Sum('fbt_overall_merchant_subsidy'),
     )
     for r in s_qs:
-        d = r['statement_date']
+        d = r[s_date_field]
         if not d: continue
+        if d not in result: continue
         result[d]['   Referral Fee'] = r['referral'] or ZERO
         result[d]['   Platform (Affiliate Commission)'] = r['affiliate'] or ZERO
         result[d]['   Campaign Service Fee'] = r['campaign'] or ZERO
@@ -335,17 +367,17 @@ def _compute_daily_pnl_impl(start_date, end_date):
 
     # Seller-shipping per-day override for Cost to Ship to Customer.
     # Cost = postage + per_pack + per_pick (the full 3PL line item per shipment).
-    # Attribution: shipped_date (the day Jetpack actually shipped the package).
-    # Per Lindsay 2026-06-25 — shipping costs land on the day the order was
-    # shipped, not the day it was created. This is internally consistent with
-    # the Settlement-date methodology elsewhere on the P&L.
+    # Attribution depends on methodology:
+    #   Jack's view: shipped_date (per Lindsay 2026-06-25) — day Jetpack shipped.
+    #   Luca's view: order_date — day the customer placed the order (activity view).
+    ship_date_field = 'order_date' if use_order_date else 'shipped_date'
     ship_qs = SellerShipmentCost.objects.filter(
-        shipped_date__gte=start_date, shipped_date__lte=end_date,
-    ).values('shipped_date').annotate(
+        **{f'{ship_date_field}__gte': start_date, f'{ship_date_field}__lte': end_date},
+    ).values(ship_date_field).annotate(
         total=Sum(F('postage') + F('per_pack') + F('per_pick')),
     )
-    daily_ship = {r['shipped_date']: r['total'] or ZERO for r in ship_qs}
-    months_with_ship = {f'{d.year:04d}-{d.month:02d}' for d in daily_ship.keys()}
+    daily_ship = {r[ship_date_field]: r['total'] or ZERO for r in ship_qs}
+    months_with_ship = {f'{d.year:04d}-{d.month:02d}' for d in daily_ship.keys() if d}
     for d in dates:
         mkey = f'{d.year:04d}-{d.month:02d}'
         if mkey in months_with_ship:
@@ -431,14 +463,12 @@ def _compute_daily_pnl_impl(start_date, end_date):
     return result
 
 
-def compute_monthly_pnl(year):
+def compute_monthly_pnl(year, methodology='statement_date'):
     """Aggregate Daily P&L into Monthly P&L for the given year.
-
     Runs ONE year-wide compute_daily_pnl and buckets the result by month.
-    Previously called compute_daily_pnl 12 times, which made the Monthly P&L
-    page do ~12× the database round-trips it needed. Same numbers, much faster.
+    methodology: 'statement_date' (Jack) or 'order_created_date' (Luca).
     """
-    daily = compute_daily_pnl(date(year, 1, 1), date(year, 12, 31))
+    daily = compute_daily_pnl(date(year, 1, 1), date(year, 12, 31), methodology=methodology)
     months = {f'{year:04d}-{m:02d}': {} for m in range(1, 13)}
     for d, row in daily.items():
         mkey = f'{d.year:04d}-{d.month:02d}'

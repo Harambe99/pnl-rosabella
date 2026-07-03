@@ -49,6 +49,15 @@ def _pct(v, nr):
         return None
 
 
+def _resolve_view(request):
+    """Determine which methodology view to use based on ?view= query param.
+    Returns tuple (view_key, methodology, label) for use in aggregator + template."""
+    v = (request.GET.get('view') or '').strip().lower()
+    if v in ('luca', 'jams', 'order_date', 'order_created_date'):
+        return ('luca', 'order_created_date', 'Luca — Operational P&L (Order Date)')
+    return ('jack', 'statement_date', 'Jack — Accounting P&L (Statement Date)')
+
+
 def dashboard(request):
     try:
         year = int(request.GET.get('year', 2026))
@@ -57,7 +66,8 @@ def dashboard(request):
             return redirect('dashboard')
     except (TypeError, ValueError):
         return redirect('dashboard')
-    monthly = compute_monthly_pnl(year)
+    view_key, methodology, view_label = _resolve_view(request)
+    monthly = compute_monthly_pnl(year, methodology=methodology)
     months = [f'{year}-{m:02d}' for m in range(1, 13)]
     rows = []
     # Pre-compute Net Revenue per month (for % column) and YTD Net Revenue
@@ -83,6 +93,7 @@ def dashboard(request):
                      'ytd': ytd, 'ytd_pct': ytd_pct})
     return render(request, 'core/dashboard.html', {
         'rows': rows, 'months': months, 'year': year,
+        'view_key': view_key, 'view_label': view_label,
     })
 
 
@@ -96,9 +107,10 @@ def daily_view(request):
             return redirect('daily')
     except Exception:
         return redirect('daily')
+    view_key, methodology, view_label = _resolve_view(request)
     start = date(y, 1, 1)
     end = date(y, 12, 31)
-    daily = compute_daily_pnl(start, end)
+    daily = compute_daily_pnl(start, end, methodology=methodology)
     dates = sorted(daily.keys())
     nr_per_date = [daily.get(d, {}).get('NET REVENUE') for d in dates]
     rows = []
@@ -117,6 +129,7 @@ def daily_view(request):
     return render(request, 'core/daily.html', {
         'rows': rows, 'dates': dates, 'yyyy_mm': yyyy_mm, 'year': y,
         'prev_year': y - 1, 'next_year': y + 1,
+        'view_key': view_key, 'view_label': view_label,
     })
 
 
@@ -761,9 +774,11 @@ def export_pnl(request):
     from_mm = request.GET.get('from_month', '')
     to_mm = request.GET.get('to_month', '')
 
+    view_key, methodology, view_label = _resolve_view(request)
     if not mode:
         return render(request, 'core/export.html', {
             'current_month': date.today().strftime('%Y-%m'),
+            'view_key': view_key, 'view_label': view_label,
         })
     if mode not in ('monthly', 'daily'):
         return HttpResponse('mode must be monthly or daily', status=400)
@@ -897,7 +912,7 @@ def export_pnl(request):
         for (yr, mo) in months:
             start = date(yr, mo, 1)
             end = date(yr, mo, monthrange(yr, mo)[1])
-            daily = compute_daily_pnl(start, end)
+            daily = compute_daily_pnl(start, end, methodology=methodology)
             m_totals = {}
             for d, row in daily.items():
                 for label, val in row.items():
@@ -981,7 +996,7 @@ def export_pnl(request):
         ws.title = f'Monthly P&L {yyyy_mm}'
         start = date(y, m, 1)
         end = date(y, m, monthrange(y, m)[1])
-        daily = compute_daily_pnl(start, end)
+        daily = compute_daily_pnl(start, end, methodology=methodology)
         monthly = {}
         for d, row in daily.items():
             for label, val in row.items():
@@ -1029,7 +1044,7 @@ def export_pnl(request):
         ws.title = f'Daily P&L {yyyy_mm}'
         start = date(y, m, 1)
         end = date(y, m, monthrange(y, m)[1])
-        daily = compute_daily_pnl(start, end)
+        daily = compute_daily_pnl(start, end, methodology=methodology)
         dates = sorted(daily.keys())
         nr_per_date = [daily.get(d, {}).get('NET REVENUE') for d in dates]
         month_nr = sum((v or Decimal('0')) for v in nr_per_date)

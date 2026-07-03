@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>{% block title %}PnL Rosabella{% endblock %}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" defer></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #fafafa; }
     .navbar { background: #1A202C !important; }
@@ -66,6 +67,21 @@
         <li class="nav-item"><a class="nav-link" href="{% url 'export_pnl' %}">Export</a></li>
         <li class="nav-item"><a class="nav-link" href="{% url 'readme' %}">README</a></li>
       </ul>
+      <div class="dropdown me-3" id="viewSwitcher">
+        <button class="btn btn-sm dropdown-toggle" style="background:#2D3748;color:#fff;border-color:#4A5568" data-bs-toggle="dropdown">
+          <span id="viewBadge">Jack — Statement Date</span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="#" data-view="jack">
+            <strong>Jack — Accounting P&amp;L</strong><br>
+            <small class="text-muted">Statement Date methodology. Revenue and fees attribute to the day TikTok processed the settlement. Cash-basis leaning.</small>
+          </a></li>
+          <li><a class="dropdown-item" href="#" data-view="luca">
+            <strong>Luca — Operational P&amp;L</strong><br>
+            <small class="text-muted">Order Created Date methodology. Revenue and fees attribute to the day the customer placed the order. Activity view.</small>
+          </a></li>
+        </ul>
+      </div>
       <a class="nav-link" href="{% url 'logout' %}">Logout</a>
     </div>
   </div>
@@ -98,6 +114,35 @@
     window.zoomReset = function(){ applyZoom(100); };
     // Apply saved zoom on page load
     applyZoom(parseInt(localStorage.getItem('pnl-zoom') || '100', 10));
+  })();
+
+  // View switcher — Jack (Statement Date) vs Luca (Order Created Date)
+  (function(){
+    var url = new URL(window.location.href);
+    var currentView = url.searchParams.get('view') || 'jack';
+    if (currentView === 'jams' || currentView === 'order_date' || currentView === 'order_created_date') {
+      currentView = 'luca';
+    }
+    var badge = document.getElementById('viewBadge');
+    if (badge) {
+      badge.textContent = currentView === 'luca'
+        ? 'Luca — Order Date'
+        : 'Jack — Statement Date';
+      badge.style.color = currentView === 'luca' ? '#fbd38d' : '#fff';
+    }
+    document.querySelectorAll('#viewSwitcher a[data-view]').forEach(function(el){
+      el.addEventListener('click', function(e){
+        e.preventDefault();
+        var target = el.getAttribute('data-view');
+        var u = new URL(window.location.href);
+        if (target === 'jack') {
+          u.searchParams.delete('view');
+        } else {
+          u.searchParams.set('view', target);
+        }
+        window.location.href = u.toString();
+      });
+    });
   })();
 </script>
 </body>
