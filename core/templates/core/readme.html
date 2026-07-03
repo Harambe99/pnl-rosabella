@@ -134,41 +134,98 @@
 </table>
 
 <h2 id="methodology">4. Attribution methodology — how each line dates its values</h2>
-<p>This is the most important section. Different P&amp;L lines attribute their values to different days depending on when the underlying business event happened. Confused methodology = wrong-month reporting = P&amp;L drift vs TikTok / accounting.</p>
 
 <div class="callout callout-info">
-  <strong>Four methodologies are in use across the P&amp;L</strong>, each chosen deliberately for that line's economics. All four are anchored to Lindsay + Jack's June 25-30, 2026 spec, with FBT reverted to services-month on Jack's July 1 request.
+  <strong>Two P&amp;L views are available</strong>, same underlying data, different attribution rules. Toggle via the header dropdown (top-right of every page).
+  <table class="table table-sm mt-2 mb-0" style="background:transparent">
+    <tr>
+      <td style="border:none; padding:4px 8px">🔵 <strong>Jack — Accounting P&amp;L (default)</strong></td>
+      <td style="border:none; padding:4px 8px"><code>?view=</code> (omit) or <code>?view=jack</code></td>
+      <td style="border:none; padding:4px 8px">Settlement Date methodology — the day TikTok processed the settlement. Cash-basis leaning. What Jack reads.</td>
+    </tr>
+    <tr>
+      <td style="border:none; padding:4px 8px">🟠 <strong>Luca — Operational P&amp;L</strong></td>
+      <td style="border:none; padding:4px 8px"><code>?view=luca</code></td>
+      <td style="border:none; padding:4px 8px">Order Created Date methodology — the day the customer placed the order. Activity view. "How are we performing on TikTok right now."</td>
+    </tr>
+  </table>
 </div>
 
+<h3>Architecture — same DB, different aggregation</h3>
+<p>Both views operate on the <strong>same underlying data</strong>. Every file you upload feeds both views instantly — you never upload anything twice.</p>
+<p>The aggregator (<code>compute_daily_pnl</code>) takes a <code>methodology=</code> parameter that switches which date column each query groups by. The rest of the machinery (models, importers, exports, cache invalidation) is unchanged.</p>
+<pre><code>Same tables (Order, SettlementRow, MonthlyInput, ...)
+                        │
+                        ▼
+                 Aggregator
+        ┌──────────────┴──────────────┐
+        │                             │
+methodology='statement_date'   methodology='order_created_date'
+        │                             │
+        ▼                             ▼
+    Jack's P&L                    Luca's P&L
+</code></pre>
+
+<div class="callout callout-info">
+  <strong>Four attribution methodologies are in use across the P&amp;L</strong>, each chosen deliberately for that line's economics. Under Jack's view, Settlement-driven lines use <em>Statement Date</em>. Under Luca's view, those same lines switch to <em>Order Created Date</em>. Everything else stays the same in both views.
+</div>
+
+<h4>Where the two views AGREE (same in both)</h4>
 <table class="table table-sm table-bordered">
-  <thead><tr><th>Methodology</th><th>Applied to</th><th>Anchoring date</th><th>Why</th></tr></thead>
+  <thead><tr><th>Lines</th><th>Methodology</th><th>Why unchanged</th></tr></thead>
   <tbody>
     <tr>
-      <td><span class="methodology method-stmt">Statement Date</span></td>
-      <td>Gross Sales, Promos &amp; Discounts, Refunds, COGS, all Settlement-side fees (Referral, Affiliate, FBT Fulfillment, Chargebacks, Violation, Refund Admin, Campaign, Co-funded Promo, Smart Promo, all reimbursements + adjustments)</td>
-      <td>The day TikTok processed the order/adjustment through settlement (<code>Statement date</code> column)</td>
-      <td>Per Lindsay/Jack 2026-06-25 — matches when TikTok actually recognized the transaction. Under this scheme, orders placed at end of month but settled next month appear in next month.</td>
+      <td>Ad Spend, TBSM Savings, TT Promo Credits</td>
+      <td><span class="methodology method-daily">Daily</span></td>
+      <td>Billed daily by TikTok; no "statement" concept applies.</td>
     </tr>
     <tr>
-      <td><span class="methodology method-shipped">Shipped Date</span></td>
-      <td>Cost to Ship to Customer</td>
-      <td>The day Jetpack (3PL) actually shipped the package (from Seller Shipping CSV <code>shipped_date</code>)</td>
-      <td>Per Lindsay 2026-06-25. The 3PL invoice hits when they ship, not when the customer ordered.</td>
-    </tr>
-    <tr>
+      <td>All 12 FBT detail lines (Hub Placement, Storage, Inbound Shipping, Incidents, Booking/Routing/Outbound N/C, Delayed Response, Disposal, Return Shipping VAS, Return-to-Seller Handling, Inbound Return Operation)</td>
       <td><span class="methodology method-services">Services Month</span> (flat-spread)</td>
-      <td>12 FBT detail lines (Hub Placement, Storage, Inbound Shipping, Incidents, Booking/Routing/Outbound N/C, Delayed Response, Disposal, Return Shipping VAS, Return-to-Seller Handling, Inbound Return Operation), Cost to Ship to FBT (Jetpack invoices), all manual Monthly Input lines (Team Spend, Software, Retainers, Outsourced Agency, Off-Platform, Other G&amp;A, TT Promo Credits fallback)</td>
-      <td>The month the service was performed / period the invoice covers. Flat-spread across all days of that month.</td>
-      <td>FBT detail: reverted from Statement Date to Services Month on Jack's 2026-07-01 request — matches TikTok's own billing-period grouping in the FBT portal. Manual entries: they represent recurring monthly costs so services month is the natural period.</td>
+      <td>Monthly warehouse fees, always attribute to the month the work happened.</td>
     </tr>
     <tr>
-      <td><span class="methodology method-daily">Daily (cash)</span></td>
-      <td>Ad Spend, TBSM Savings, TT Promo Credits (when Feed P&amp;L is on)</td>
-      <td>The date the ad was billed (Campaign Overview file) or the day the FIFO ledger drew from a discounted layer</td>
-      <td>Ad transactions are billed daily by TikTok; no "statement" concept applies. TBSM discounts happen per-draw, so they align to the day of spend.</td>
+      <td>Cost to Ship to FBT, Team Spend, Software &amp; Tools, Monthly Retainers, Outsourced Agency, Off-Platform (1%), Other G&amp;A</td>
+      <td><span class="methodology method-services">Services Month</span> (flat-spread)</td>
+      <td>Manual monthly recurring costs. Same "month it was for" logic in both views.</td>
     </tr>
   </tbody>
 </table>
+
+<h4>Where the two views DIFFER</h4>
+<table class="table table-sm table-bordered">
+  <thead><tr><th>Line</th><th>🔵 Jack (Statement Date)</th><th>🟠 Luca (Order Created Date)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Gross Sales, Less: Promos &amp; Discounts, COGS</td>
+      <td>Order × Settlement JOIN, grouped by MIN(statement_date) over all history. Order counts on the day TikTok processed it through settlement.</td>
+      <td>Grouped by <code>Order.created_date</code> directly (no Settlement JOIN). Order counts on the day the customer placed it.</td>
+    </tr>
+    <tr>
+      <td>Less: Refunds</td>
+      <td>Grouped by <code>SettlementRow.statement_date</code>. Refund hits P&amp;L when TikTok processed the reversal.</td>
+      <td>Grouped by <code>SettlementRow.order_created_date</code>. Refund hits P&amp;L on the original order's placement date.</td>
+    </tr>
+    <tr>
+      <td>All 20+ Settlement fees (Referral, Affiliate, FBT Fulfillment Fee + Reimbursement, TT Shop Shipping Incentive + Refund, Shipping Fee Subsidy, FBT Overall Merchant Subsidy, Customer Shipping Fee Offset, Customer-Paid Shipping Fee + Refund, Co-funded Promo + Campaign Fee, Smart Promo Fee + Campaign Fee, Chargebacks, Refund Admin, Campaign Service, Violation, TikTok Shop Reimb, Rebate, Logistics Reimbursement, FBT Warehouse Compensation + Service Fee, Unclassified Adjustments)</td>
+      <td>Grouped by <code>SettlementRow.statement_date</code>.</td>
+      <td>Grouped by <code>SettlementRow.order_created_date</code> — same fee value, different day.</td>
+    </tr>
+    <tr>
+      <td>Cost to Ship to Customer</td>
+      <td>Grouped by <code>SellerShipmentCost.shipped_date</code> — day Jetpack shipped.</td>
+      <td>Grouped by <code>SellerShipmentCost.order_date</code> — day the order was placed.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>Practical difference between the views</h4>
+<p>For an order placed <strong>Jan 30</strong>, shipped <strong>Feb 2</strong>, settled <strong>Feb 4</strong>:</p>
+<ul>
+  <li><strong>Jack's view</strong>: full P&amp;L impact lands in <strong>February</strong> (Statement Date = Feb 4).</li>
+  <li><strong>Luca's view</strong>: full P&amp;L impact lands in <strong>January</strong> (Order Created Date = Jan 30).</li>
+</ul>
+<p>Neither is wrong. Jack's view answers "when did we actually book the transaction on our books?" Luca's view answers "what did we sell in January?"</p>
 
 <div class="callout callout-warn">
   <strong>Historical note.</strong> FBT detail lines were on Statement Date methodology from 2026-06-26 to 2026-07-01 (Payment Cycle upload determined the destination month). Jack requested a revert on 2026-07-01 — the FBTBillingSchedule + Payment Cycle importer are still in the codebase (untouched) in case we need to switch back, but they no longer drive attribution.
