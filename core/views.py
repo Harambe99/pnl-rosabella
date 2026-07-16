@@ -1145,6 +1145,8 @@ def ad_discounts(request):
             cfg.opening_date = _parse_date(request.POST.get('opening_date'))
             cfg.opening_discount = Decimal(request.POST.get('opening_discount', '0.06') or '0.06')
             cfg.tbsm_default_discount = Decimal(request.POST.get('tbsm_default_discount', '0.06') or '0.06')
+            cfg.agency_default_discount = Decimal(request.POST.get('agency_default_discount', '0.10') or '0.10')
+            cfg.tbsm_threshold = Decimal(request.POST.get('tbsm_threshold', '15000') or '15000')
             cfg.feed_pnl = (request.POST.get('feed_pnl') == 'on')
             cfg.save()
             recompute_ledger(date(year, 1, 1), date(year, 12, 31))
@@ -1152,16 +1154,18 @@ def ad_discounts(request):
         elif action == 'add_tag':
             d = _parse_date(request.POST.get('tag_date'))
             if d:
+                # min_amount is legacy — the new engine auto-classifies by tbsm_threshold.
+                # Keep the column populated (0) so existing rows/schema still work.
                 AgencyPromoTag.objects.update_or_create(
                     date=d,
                     defaults={
-                        'min_amount': Decimal(request.POST.get('tag_min', '10000') or '10000'),
+                        'min_amount': Decimal(request.POST.get('tag_min', '0') or '0'),
                         'discount_pct': Decimal(request.POST.get('tag_disc', '0.10') or '0.10'),
                         'note': request.POST.get('tag_note', ''),
                     },
                 )
                 recompute_ledger(date(year, 1, 1), date(year, 12, 31))
-                messages.success(request, f'Agency promo tag saved for {d}.')
+                messages.success(request, f'Discount override saved for {d}.')
         elif action == 'delete_tag':
             try:
                 AgencyPromoTag.objects.filter(pk=int(request.POST.get('tag_id'))).delete()

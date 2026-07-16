@@ -278,7 +278,15 @@ class AdLedgerConfig(models.Model):
         help_text="Date the opening balance applies as-of.")
     opening_discount = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.06'))
     tbsm_default_discount = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.06'),
-        help_text="Discount applied to every Others/Increase balance load by default.")
+        help_text="Default discount for Others / Increase balance loads (direct TBSM top-up). "
+                  "Historical rate is 6%. Overridable per date via a Discount Override entry.")
+    agency_default_discount = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.10'),
+        help_text="Default discount for large Promotions-sheet loads (agency-purchased, e.g. KDMT). "
+                  "Applies to any Promotions daily-sum >= tbsm_threshold. Historical rate is 10%. "
+                  "Overridable per date via a Discount Override entry.")
+    tbsm_threshold = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('15000.00'),
+        help_text="Promotions-sheet loads at or above this daily total are classified as TBSM "
+                  "(paid, discounted) instead of free promo credit. Default $15,000.")
     feed_pnl = models.BooleanField(default=False,
         help_text="When True, AdLedgerDay TBSM Savings + TT Promo Credits override the "
                   "manual/zero values on Daily and Monthly P&L. Keep False until the engine "
@@ -295,6 +303,10 @@ class AdLedgerDay(models.Model):
     card_charge = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     opening_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     closing_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tbsm_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0,
+        help_text='Closing TBSM (paid, discounted) pool balance.')
+    promo_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0,
+        help_text='Closing Promo (free) pool balance.')
     funded = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     full_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     savings_tbsm = models.DecimalField(max_digits=12, decimal_places=2, default=0)

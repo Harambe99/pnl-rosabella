@@ -39,6 +39,12 @@
 <p class="text-muted">
   Daily FIFO reconciliation of your TikTok ad account: which days were funded by discounted balance vs full-price card-billed.
   Powered by the most recent Ad Transactions upload ({{ txn_count|intcomma }} transactions on file).
+  <br><small>
+    <strong>Engine v2 (2026-07-16):</strong> Others loads → TBSM at <code>{{ config.tbsm_default_discount|floatformat:4 }}</code> (6% historical).
+    Promotions loads ≥ <code>${{ config.tbsm_threshold|floatformat:0|intcomma }}</code>/day → TBSM at <code>{{ config.agency_default_discount|floatformat:4 }}</code> (10% agency).
+    Smaller Promotions → free promo credits.
+    Promo pool always drained BEFORE TBSM (matches TT's real behavior).
+  </small>
 </p>
 
 {% if config.feed_pnl %}
@@ -92,7 +98,7 @@
   <thead><tr>
     <th>Date</th><th>Ad Spend</th>
     <th>TBSM In</th><th>Promo In</th><th>Card</th>
-    <th>Opening Bal</th><th>Closing Bal</th>
+    <th>TBSM Bal</th><th>Promo Bal</th><th>Total Bal</th>
     <th>Funded</th><th>Full-Price</th>
     <th>Source</th>
     <th>Disc on Funded</th><th>Actual Cost</th><th>Eff. Disc %</th>
@@ -105,7 +111,8 @@
       <td>{% if d.tbsm_in %}<span class="pos">+${{ d.tbsm_in|floatformat:2|intcomma }}</span>{% endif %}</td>
       <td>{% if d.promo_in %}<span class="pos">+${{ d.promo_in|floatformat:2|intcomma }}</span>{% endif %}</td>
       <td>{% if d.card_charge %}${{ d.card_charge|floatformat:2|intcomma }}{% endif %}</td>
-      <td>${{ d.opening_balance|floatformat:2|intcomma }}</td>
+      <td>${{ d.tbsm_balance|floatformat:2|intcomma }}</td>
+      <td>${{ d.promo_balance|floatformat:2|intcomma }}</td>
       <td>${{ d.closing_balance|floatformat:2|intcomma }}</td>
       <td>${{ d.funded|floatformat:2|intcomma }}</td>
       <td>${{ d.full_price|floatformat:2|intcomma }}</td>
@@ -122,7 +129,7 @@
       <td>{{ d.effective_discount|floatformat:4 }}</td>
     </tr>
     {% empty %}
-    <tr><td colspan="13" class="text-muted">No daily rows — upload Ad Transactions to populate.</td></tr>
+    <tr><td colspan="14" class="text-muted">No daily rows — upload Ad Transactions to populate.</td></tr>
     {% endfor %}
   </tbody>
 </table>
@@ -146,9 +153,18 @@
         <label class="form-label small mb-1">Opening discount (e.g. 0.06)</label>
         <input type="number" step="0.0001" name="opening_discount" class="form-control form-control-sm mb-2"
                value="{{ config.opening_discount }}">
-        <label class="form-label small mb-1">Default TBSM discount</label>
-        <input type="number" step="0.0001" name="tbsm_default_discount" class="form-control form-control-sm mb-2"
+        <label class="form-label small mb-1">Default Others discount (direct TBSM, e.g. 0.06)</label>
+        <input type="number" step="0.0001" name="tbsm_default_discount" class="form-control form-control-sm mb-1"
                value="{{ config.tbsm_default_discount }}">
+        <small class="text-muted d-block mb-2">Applied to Others/Increase-balance loads. Historical rate 6%.</small>
+        <label class="form-label small mb-1">Default Agency discount (big Promotions, e.g. 0.10)</label>
+        <input type="number" step="0.0001" name="agency_default_discount" class="form-control form-control-sm mb-1"
+               value="{{ config.agency_default_discount }}">
+        <small class="text-muted d-block mb-2">Applied to Promotions loads ≥ threshold below. Historical rate 10%.</small>
+        <label class="form-label small mb-1">TBSM auto-classify threshold ($)</label>
+        <input type="number" step="0.01" name="tbsm_threshold" class="form-control form-control-sm mb-1"
+               value="{{ config.tbsm_threshold }}">
+        <small class="text-muted d-block mb-2">Promotions-sheet loads ≥ this daily total are treated as TBSM (paid). Smaller ones = free promo credits.</small>
         <div class="form-check mt-2 mb-2">
           <input class="form-check-input" type="checkbox" name="feed_pnl" id="feed_pnl"
                  {% if config.feed_pnl %}checked{% endif %}>
@@ -163,15 +179,14 @@
 
   <div class="col-lg-4">
     <div class="card p-3">
-      <h5>Agency promo tags</h5>
-      <small class="text-muted">Promotions-sheet days that are actually agency-purchased (e.g. KDMT 10%). Untagged promos = free.</small>
+      <h5>TBSM discount overrides</h5>
+      <small class="text-muted">Per-date TBSM discount rate. Add a row only when a specific load was at a rate different from the default (e.g. a 6% load in a 10%-default month).</small>
       <table class="table table-sm mt-2 mb-2">
-        <thead><tr><th>Date</th><th>Min $</th><th>Discount</th><th>Note</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Discount</th><th>Note</th><th></th></tr></thead>
         <tbody>
         {% for t in tags %}
         <tr>
           <td>{{ t.date|date:"Y-m-d" }}</td>
-          <td>${{ t.min_amount|floatformat:0|intcomma }}</td>
           <td>{{ t.discount_pct }}</td>
           <td><small>{{ t.note }}</small></td>
           <td>
@@ -184,20 +199,20 @@
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" class="text-muted">No tags yet.</td></tr>
+        <tr><td colspan="4" class="text-muted">No overrides yet — TBSM loads use the default rate above.</td></tr>
         {% endfor %}
         </tbody>
       </table>
       <form method="post">
         {% csrf_token %}
         <input type="hidden" name="action" value="add_tag">
+        <input type="hidden" name="tag_min" value="0">
         <div class="row g-1">
-          <div class="col-5"><input type="date" name="tag_date" class="form-control form-control-sm" required></div>
-          <div class="col-3"><input type="number" step="0.01" name="tag_min" placeholder="min $" class="form-control form-control-sm" value="10000"></div>
-          <div class="col-4"><input type="number" step="0.0001" name="tag_disc" placeholder="disc" class="form-control form-control-sm" value="0.10"></div>
+          <div class="col-7"><input type="date" name="tag_date" class="form-control form-control-sm" required></div>
+          <div class="col-5"><input type="number" step="0.0001" name="tag_disc" placeholder="disc (e.g. 0.10)" class="form-control form-control-sm" value="0.10"></div>
         </div>
-        <input type="text" name="tag_note" placeholder="Note (e.g. KDMT 10%)" class="form-control form-control-sm mt-1 mb-2">
-        <button type="submit" class="btn btn-primary btn-sm w-100">Add tag + Recompute</button>
+        <input type="text" name="tag_note" placeholder="Note (e.g. Agency X, 10%)" class="form-control form-control-sm mt-1 mb-2">
+        <button type="submit" class="btn btn-primary btn-sm w-100">Add override + Recompute</button>
       </form>
     </div>
   </div>
