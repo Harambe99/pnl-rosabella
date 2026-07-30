@@ -20,6 +20,13 @@ SEED = [
     ('1732409320576226054', 'Liposomal Glutathione Capsules', 'Glutathione Triples (3-pack)', '11.85', 'ROS-LPGL-CAP-3PK', 'NEW - verify with Jetpack', 'PENDING', '1732307596354622214'),
     ('1732407859575231238', 'Liposomal Glutathione Capsules', 'Glutathione Triples (legacy?)', '11.85', 'ROS-LPGL-CAP-3PK', 'Legacy variant', 'PENDING', '1732307596354622214'),
     ('1732395188357993222', 'Liposomal Glutathione Capsules', 'Glutathione Triple bundle (legacy?)', '11.85', 'ROS-LPGL-CAP-3PK', 'Legacy variant', 'PENDING', '1732307596354622214'),
+    # Actual (non-virtual) Glutathione bundles — replaced the virtual variants pre-Jul 28 2026.
+    # Same COGS as their virtual counterparts since bottle contents identical.
+    ('1732504040418743046', 'Liposomal Glutathione Capsules', 'Glutathione Doubles (actual bundle)', '7.90', 'ROS-LPGL-CAP-2PK', 'Actual bundle SKU (replaces virtual 1732409320576160518). Seller SKU: TTSGLUTATHIONE-2-actual', 'Y', '1732307596354622214'),
+    ('1732504040418808582', 'Liposomal Glutathione Capsules', 'Glutathione Triples (actual bundle)', '11.85', 'ROS-LPGL-CAP-3PK', 'Actual bundle SKU (replaces virtual 1732409320576226054). Seller SKU: TTSGLUTATHIONE-3-actual', 'Y', '1732307596354622214'),
+    # NEW SKU (2026-07-28): Rosabella Glow Trio Bundle (Moringa Cap 800mg + Gluta + Beetroot 1300mg).
+    # COGS = $1.89 (Moringa) + $3.95 (Gluta) + $2.05 (Beet) = $7.89.
+    ('1732498120183681798', 'Rosabella Glow Trio Bundle', 'Moringa + Gluta + Beetroot 3-btl bundle', '7.89', 'ROS-GLBM-BUN3', 'Launched 2026-07-28. Seller SKU: TTS-Glow bundle. Original $99.99 / Deal $49.49.', 'Y', '1732498111148626694'),
     ('1731538111523361542', 'Rosabella Best Sellers Bundle BUN4', 'Default', '10.32', 'ROS-MBSH-TTBS-BUN4', '', 'Updated - Y', '1731538109708079878'),
     ('1731531864174072582', 'Rosabella Moringa Cleanse', 'Moringa Cleanse', '2.20', 'ROS-MCLEA-CAP-1PK', '', 'Updated - Y', '1731332047391331078'),
     ('1731256751470580486', 'Moringa + Beetroot Combo Pack', 'Default', '3.97', 'ROS-MORG-BEET-BUN2', 'listing level SKU', 'Updated - Y', '1731256725498794758'),
