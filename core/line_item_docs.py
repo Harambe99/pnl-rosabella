@@ -352,10 +352,16 @@ LINE_ITEM_DOCS = {
         'formula': '-1 × (monthly value ÷ days in month).',
         'notes': '',
     },
+    'Prizes & Giveaways': {
+        'what': 'Prize costs, giveaway swag, contest incentives — anything sent to customers or creators to drive engagement / awareness.',
+        'source': 'Monthly Input.',
+        'formula': '-1 × (monthly value ÷ days in month).',
+        'notes': 'Enter as a positive dollar amount; displayed negative on the P&L.',
+    },
     'TOTAL MARKETING': {
-        'what': 'Total marketing cost (ads + creators + agency).',
+        'what': 'Total marketing cost (ads + creators + agency + prizes).',
         'source': 'Computed.',
-        'formula': 'Total Ad Spend + Platform (Affiliate) + Off-Platform + Retainers + Outsourced Agency.',
+        'formula': 'Total Ad Spend + Platform (Affiliate) + Off-Platform + Retainers + Outsourced Agency + Prizes & Giveaways.',
         'notes': '',
     },
 

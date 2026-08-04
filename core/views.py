@@ -314,6 +314,7 @@ LINE_ITEM_TO_SOURCE = {
     'Other G&A': 'Source — Monthly Inputs',
     'Monthly Retainers': 'Source — Monthly Inputs',
     'Outsourced Agency': 'Source — Monthly Inputs',
+    'Prizes & Giveaways': 'Source — Monthly Inputs',
     'Off-Platform (1% method)': 'Source — Monthly Inputs',
 }
 
@@ -596,6 +597,7 @@ def _build_source_sheets(wb, start_date, end_date, styles):
         ('Software & Tools',          'software_tools',     'SaaS subscriptions (e.g. monthly tooling stack).'),
         ('Monthly Retainers',         'monthly_retainers',  'Creator retainers paid monthly.'),
         ('Outsourced Agency',         'creatify',           'Agency fees (DB field: creatify).'),
+        ('Prizes & Giveaways',        'prizes_giveaways',   'Prize costs, giveaway swag, contest incentives.'),
         ('Off-Platform (1% method)',  'off_platform_1pct',  'Estimated 1% commission for off-platform creators.'),
         ('Other G&A',                 'other_ga',           'Misc admin: legal, accounting, office, etc.'),
     ]

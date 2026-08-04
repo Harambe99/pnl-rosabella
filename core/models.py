@@ -147,6 +147,7 @@ class MonthlyInput(models.Model):
     software_tools = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     monthly_retainers = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     creatify = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    prizes_giveaways = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     off_platform_1pct = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     other_ga = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     tt_promo_credits = models.DecimalField(max_digits=12, decimal_places=2, default=0)

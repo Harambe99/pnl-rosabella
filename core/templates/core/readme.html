@@ -185,7 +185,7 @@ methodology='statement_date'   methodology='order_created_date'
       <td>Monthly warehouse fees, always attribute to the month the work happened.</td>
     </tr>
     <tr>
-      <td>Cost to Ship to FBT, Team Spend, Software &amp; Tools, Monthly Retainers, Outsourced Agency, Off-Platform (1%), Other G&amp;A</td>
+      <td>Cost to Ship to FBT, Team Spend, Software &amp; Tools, Monthly Retainers, Outsourced Agency, Prizes &amp; Giveaways, Off-Platform (1%), Other G&amp;A</td>
       <td><span class="methodology method-services">Services Month</span> (flat-spread)</td>
       <td>Manual monthly recurring costs. Same "month it was for" logic in both views.</td>
     </tr>
@@ -349,6 +349,7 @@ methodology='statement_date'   methodology='order_created_date'
     <tr><td><code>software_tools</code></td><td>SaaS subscriptions</td><td>Credit-card statement</td></tr>
     <tr><td><code>monthly_retainers</code></td><td>Fixed creator/agency retainers</td><td>Internal contracts</td></tr>
     <tr><td><code>creatify</code> (labeled "Outsourced Agency")</td><td>External creative/agency cost</td><td>Agency invoice</td></tr>
+    <tr><td><code>prizes_giveaways</code></td><td>Prize costs, giveaway swag, contest incentives</td><td>Internal tracker of prize/giveaway spend</td></tr>
     <tr><td><code>off_platform_1pct</code></td><td>1% method commission for off-platform creators</td><td>Internal calc (1% of off-platform-driven revenue)</td></tr>
     <tr><td><code>other_ga</code></td><td>Misc G&amp;A</td><td>Bookkeeping</td></tr>
     <tr><td><code>tt_promo_credits</code></td><td>Fallback for TT Promo Credits when FIFO engine's Feed P&amp;L is disabled</td><td>Ads Manager promo balance (manual until ledger takes over)</td></tr>
@@ -648,8 +649,13 @@ methodology='statement_date'   methodology='order_created_date'
 </div>
 
 <div class="line-item">
+  <div class="li-name">Prizes &amp; Giveaways <span class="badge-src badge-monthly">Monthly Input</span> <span class="methodology method-services">Services Month</span></div>
+  <div class="li-from">DB field <code>prizes_giveaways</code>. Prize costs, giveaway swag, contest incentives — anything sent to customers or creators to drive engagement / awareness. Enter positive; displayed negative.</div>
+</div>
+
+<div class="line-item">
   <div class="li-name">TOTAL MARKETING <span class="badge-src badge-calc">CALC</span></div>
-  <div class="li-formula"><b>Formula:</b> Total Ad Spend + Platform (Affiliate) + Off-Platform + Monthly Retainers + Outsourced Agency.</div>
+  <div class="li-formula"><b>Formula:</b> Total Ad Spend + Platform (Affiliate) + Off-Platform + Monthly Retainers + Outsourced Agency + Prizes &amp; Giveaways.</div>
 </div>
 
 <h3>G&amp;A</h3>
