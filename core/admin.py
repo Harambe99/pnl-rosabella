@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import COGSItem, Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, ImportLog
+from .models import COGSItem, Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput, ImportLog, AdSpendDayAudit
 
 
 @admin.register(COGSItem)
@@ -35,3 +35,10 @@ class LogAdmin(admin.ModelAdmin):
 
 admin.site.register(AnalyticsDay)
 admin.site.register(AdSpendDay)
+
+
+@admin.register(AdSpendDayAudit)
+class AdSpendDayAuditAdmin(admin.ModelAdmin):
+    list_display = ('changed_at', 'date', 'field_name', 'old_value', 'new_value')
+    list_filter = ('field_name',)
+    date_hierarchy = 'changed_at'

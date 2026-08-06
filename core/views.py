@@ -14,7 +14,7 @@ from openpyxl.styles import Alignment, Font
 from .models import (COGSItem, MonthlyInput, ImportLog, MonthlyInputAudit,
                      AdLedgerDay, AdLedgerConfig, AgencyPromoTag, AgencyInvoice,
                      AdTransaction, Order, SettlementRow, SellerShipmentCost,
-                     AnalyticsDay, AdSpendDay)
+                     AnalyticsDay, AdSpendDay, AdSpendDayAudit)
 from .aggregator import compute_daily_pnl, compute_monthly_pnl, PNL_ROW_LAYOUT
 from .importers import (import_manage_orders, import_settlement,
                         import_shop_analytics, import_ad_spend, import_fbt_billing,
@@ -235,6 +235,111 @@ def monthly_inputs(request):
     audits = MonthlyInputAudit.objects.all()[:100]
     return render(request, 'core/monthly_inputs.html', {
         'months': months,
+        'existing_json': _json.dumps(existing_data),
+        'audits': audits,
+    })
+
+
+def ad_spend_manual(request):
+    """Manually enter per-day ad spend, cost, sku_orders, and gross_revenue.
+
+    Use case: TikTok's Campaign Overview export is broken / unavailable for a
+    given day (or period) — user enters the numbers by hand from Ads Manager.
+
+    The write path MUST stay in sync with what `import_ad_spend` does:
+      1. upsert AdSpendDay row (unique on date)
+      2. write ImportLog to bust the P&L LocMemCache
+      3. recompute AdLedgerDay for the year — the FIFO engine reads
+         AdSpendDay.cost directly to drain TBSM + Promo pools. If we skip
+         this, the P&L would show new raw cost + STALE TBSM/promo savings
+         → double-count. Same pattern as ad_discounts view.
+    """
+    from datetime import datetime as _dt
+    from .ad_ledger import recompute_ledger
+
+    def _parse_date(s):
+        if not s: return None
+        try: return _dt.strptime(s, '%Y-%m-%d').date()
+        except Exception: return None
+
+    if request.method == 'POST':
+        d = _parse_date(request.POST.get('date'))
+        if not d:
+            messages.error(request, 'Invalid or missing date.')
+            return redirect('ad_spend_manual')
+
+        # Fetch or create the day. Track old values for the audit trail.
+        existing = AdSpendDay.objects.filter(date=d).first()
+        old_cost = existing.cost if existing else Decimal('0')
+        old_orders = existing.sku_orders if existing else 0
+        old_gross = existing.gross_revenue if existing else Decimal('0')
+
+        # Parse inputs. Blank = keep existing value (same policy as monthly_inputs).
+        def _parse_dec(key, default):
+            raw = request.POST.get(key)
+            if raw is None or str(raw).strip() == '':
+                return default
+            try: return Decimal(raw)
+            except Exception: return default
+
+        def _parse_int(key, default):
+            raw = request.POST.get(key)
+            if raw is None or str(raw).strip() == '':
+                return default
+            try: return int(raw)
+            except Exception: return default
+
+        new_cost = _parse_dec('cost', old_cost)
+        new_orders = _parse_int('sku_orders', old_orders)
+        new_gross = _parse_dec('gross_revenue', old_gross)
+
+        changes = []
+        if new_cost != old_cost:
+            changes.append(('cost', old_cost, new_cost))
+        if new_orders != old_orders:
+            changes.append(('sku_orders', Decimal(old_orders), Decimal(new_orders)))
+        if new_gross != old_gross:
+            changes.append(('gross_revenue', old_gross, new_gross))
+
+        if changes:
+            # Upsert row
+            AdSpendDay.objects.update_or_create(
+                date=d,
+                defaults={'cost': new_cost, 'sku_orders': new_orders, 'gross_revenue': new_gross},
+            )
+            for fname, old, new in changes:
+                AdSpendDayAudit.objects.create(date=d, field_name=fname,
+                                               old_value=old, new_value=new)
+            # Bust the P&L cache — same pattern as monthly_inputs.
+            ImportLog.objects.create(
+                importer='ad_spend_manual',
+                filename=f'{d.isoformat()} (manual edit)',
+                rows_added=len(changes),
+                notes='; '.join(f'{f}: {o} → {n}' for f, o, n in changes[:10]),
+            )
+            # Recompute the FIFO ledger so TBSM/promo savings reflect the new
+            # ad spend. Without this, savings stay stale → wrong Total Ad Spend.
+            recompute_ledger(date(d.year, 1, 1), date(d.year, 12, 31))
+            messages.success(request,
+                f'{d.isoformat()}: {len(changes)} field(s) updated + ledger recomputed for {d.year}.')
+        else:
+            messages.info(request, f'{d.isoformat()}: no changes (all fields empty or unchanged).')
+        return redirect('ad_spend_manual')
+
+    # GET — show recent 90 days of AdSpendDay + audit history.
+    days = AdSpendDay.objects.order_by('-date')[:90]
+    # Build JSON map {yyyy-mm-dd: {cost, sku_orders, gross_revenue}} for JS overwrite-warning.
+    import json as _json
+    existing_data = {
+        d.date.isoformat(): {
+            'cost': str(d.cost or 0),
+            'sku_orders': str(d.sku_orders or 0),
+            'gross_revenue': str(d.gross_revenue or 0),
+        } for d in AdSpendDay.objects.all()
+    }
+    audits = AdSpendDayAudit.objects.all()[:100]
+    return render(request, 'core/ad_spend_manual.html', {
+        'days': days,
         'existing_json': _json.dumps(existing_data),
         'audits': audits,
     })

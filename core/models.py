@@ -223,6 +223,21 @@ class MonthlyInputAudit(models.Model):
         ordering = ['-changed_at']
 
 
+class AdSpendDayAudit(models.Model):
+    """One row per field-change on AdSpendDay via the manual entry page.
+    Mirrors MonthlyInputAudit — lets us show 'what was changed when' history
+    for manually-entered ad spend (used when TikTok exports are unavailable
+    or unreliable)."""
+    date = models.DateField(db_index=True)
+    field_name = models.CharField(max_length=64)
+    old_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    new_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    changed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-changed_at']
+
+
 class AdTransaction(models.Model):
     """One row per transaction line from TikTok Ads Manager → Transactions export.
     Three sheets feed this table: Payments (card charges), Promotions (free + agency promos),
