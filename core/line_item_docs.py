@@ -115,11 +115,13 @@ LINE_ITEM_DOCS = {
     # Booking it separately was double-counting the seller portion.
 
     # ============================ FULFILLMENT — non-Settlement shipping costs ============================
-    'Cost to Ship to FBT': {
-        'what': 'Inbound shipping cost — what YOU paid Jetpack (or any 3PL) to ship stock into the FBT warehouse.',
+    'Cost to Ship to FBT by Jetpack': {
+        'what': 'Inbound shipping cost — what YOU paid Jetpack (or any external 3PL) to ship stock into the FBT warehouse.',
         'source': 'Monthly Input (manual entry — sum of Jetpack invoices).',
         'formula': '-1 × (monthly value ÷ days in services month). Flat-spread within the services month.',
-        'notes': 'NOT on settlement-date methodology — this is a 3PL invoice you pay separately to Jetpack, outside TikTok\'s billing cycle, so it doesn\'t appear in the FBT Payment Cycle file. Stays flat-spread. (Confirmed exception with Lindsay 2026-06-26.)',
+        'notes': 'NOT on settlement-date methodology — this is a 3PL invoice you pay separately to Jetpack, outside TikTok\'s billing cycle, so it doesn\'t appear in the FBT Payment Cycle file. Stays flat-spread. (Confirmed exception with Lindsay 2026-06-26.) '
+                 'ONLY put external-3PL invoices here. TikTok\'s OWN inbound charge (which the FBT portal calls "Inbound shipping fee" and the Bill calls "Inbound Domestic Delivery Fee") is already inside FBT Warehouse Service Fee — entering it here double-counts it. '
+                 'Renamed "by Jetpack" 2026-09-08 after TikTok confirmed the warehouse service fee bundles inbound shipping; historical values were left untouched for manual review.',
     },
     'Cost to Ship to Customer': {
         'what': 'Full outbound 3PL cost per shipment — postage + per-pack fee + per-pick fee.',

@@ -11,7 +11,7 @@ import openpyxl
 
 from .models import (Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput,
                      COGSItem, ImportLog, SellerShipmentCost, AdTransaction,
-                     FBTBillingSchedule)
+                     FBTBillingSchedule, FBTBillLine)
 
 
 def _to_dec(v):
@@ -863,6 +863,134 @@ def import_fbt_payment_cycle(file_obj, filename=''):
         rows_added=added,
         notes=f'Schedules: {len(agg)} ({added} new, {updated} updated)')
     return {'added': added, 'updated': updated, 'total': len(agg)}
+
+
+# ===========================================================================
+# 6c. FBT Bill importer (FBT portal → Bill → Download)
+# ===========================================================================
+def import_fbt_bill(file_obj, filename=''):
+    """FBT portal 'Bill' XLSX → FBTBillLine rows (DISPLAY-ONLY breakdown).
+
+    Reads the `1_Breakdown` sheet, whose columns are:
+        Billing period | Type | Order placement period | Business type |
+        Amount (USD) | Qty.
+
+    Each row is one fee category for one placement period, e.g.
+        August 2026 | Payment | August 2026 | Storage fee | 4951.2 | 31
+
+    These rows itemise what TikTok bundles into the single Settlement line
+    'FBT warehouse service fee using GMV payment'. They are surfaced under the
+    `FBT Warehouse Service Fee` row in the P&L for explanation only and are
+    deliberately excluded from every total — see aggregator.WSF_BREAKDOWN_PREFIX.
+
+    The billing period is parsed FROM THE FILE (no manual period entry), so a
+    back-fill of many months is just repeated uploads.
+
+    Idempotent: unique on (billing_period, placement_period, entry_type,
+    business_type), so re-uploading the same bill updates in place. Rows absent
+    from a re-upload are NOT deleted — a later bill may legitimately cover a
+    narrower set of categories.
+    """
+    try:
+        wb = openpyxl.load_workbook(file_obj, data_only=True)
+    except Exception as e:
+        return {'added': 0, 'errors': [f'Could not open file: {e}']}
+
+    # Prefer the explicitly named breakdown sheet; fall back to the first sheet.
+    sheet_name = None
+    for sn in wb.sheetnames:
+        if 'breakdown' in sn.lower():
+            sheet_name = sn
+            break
+    if sheet_name is None:
+        sheet_name = wb.sheetnames[0]
+    ws = wb[sheet_name]
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows or len(rows) < 2:
+        return {'added': 0, 'errors': ['Empty file']}
+
+    hdr = [_clean_str(c).lower() if c is not None else '' for c in rows[0]]
+
+    def col(name):
+        for i, h in enumerate(hdr):
+            if h == name.lower():
+                return i
+        return -1
+
+    c_billing = col('billing period')
+    c_type = col('type')
+    c_placement = col('order placement period')
+    c_business = col('business type')
+    c_amount = col('amount (usd)')
+    c_qty = col('qty.')
+    if c_qty < 0:
+        c_qty = col('qty')
+
+    if c_billing < 0 or c_business < 0 or c_amount < 0:
+        return {'added': 0, 'errors': [
+            f'Missing required columns (need Billing period, Business type, '
+            f'Amount (USD)). Found headers: {hdr}']}
+
+    added = updated = skipped = 0
+    periods_seen = set()
+    total_amount = Decimal('0')
+
+    for r in rows[1:]:
+        if not r:
+            continue
+
+        def cell(idx):
+            return r[idx] if 0 <= idx < len(r) else None
+
+        business = _clean_str(cell(c_business))
+        # The sheet's last row is a totals row: Business type == 'Total (USD)'
+        # with no billing period. Never store it — the P&L sums the parts.
+        if not business or business.lower().startswith('total'):
+            skipped += 1
+            continue
+
+        billing_period = _parse_period(cell(c_billing))
+        if not billing_period:
+            skipped += 1
+            continue
+
+        placement_period = _parse_period(cell(c_placement)) or ''
+        entry_type = _clean_str(cell(c_type))
+        amount = abs(_to_dec(cell(c_amount)))
+        qty = _to_int(cell(c_qty)) if c_qty >= 0 else None
+
+        _obj, was_created = FBTBillLine.objects.update_or_create(
+            billing_period=billing_period,
+            placement_period=placement_period,
+            entry_type=entry_type,
+            business_type=business,
+            defaults={
+                'amount': amount,
+                'qty': qty,
+                'source_file': filename,
+            },
+        )
+        if was_created:
+            added += 1
+        else:
+            updated += 1
+        periods_seen.add(billing_period)
+        total_amount += amount
+
+    if not periods_seen:
+        return {'added': 0, 'errors': [
+            'No usable rows found. Is this the FBT portal Bill export '
+            '(1_Breakdown sheet)?']}
+
+    period_str = ', '.join(sorted(periods_seen))
+    ImportLog.objects.create(
+        importer='fbt_bill', filename=filename,
+        rows_added=added,
+        notes=f'Billing period(s): {period_str} — {added} new, {updated} updated, '
+              f'total ${total_amount:,.2f}')
+    return {'added': added, 'updated': updated, 'skipped': skipped,
+            'billing_periods': period_str, 'total': f'${total_amount:,.2f}'}
 
 
 # ===========================================================================

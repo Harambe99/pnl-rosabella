@@ -14,11 +14,12 @@ from openpyxl.styles import Alignment, Font
 from .models import (COGSItem, MonthlyInput, ImportLog, MonthlyInputAudit,
                      AdLedgerDay, AdLedgerConfig, AgencyPromoTag, AgencyInvoice,
                      AdTransaction, Order, SettlementRow, SellerShipmentCost,
-                     AnalyticsDay, AdSpendDay, AdSpendDayAudit)
-from .aggregator import compute_daily_pnl, compute_monthly_pnl, PNL_ROW_LAYOUT
+                     AnalyticsDay, AdSpendDay, AdSpendDayAudit, FBTBillLine)
+from .aggregator import (compute_daily_pnl, compute_monthly_pnl, PNL_ROW_LAYOUT,
+                         get_pnl_row_layout)
 from .importers import (import_manage_orders, import_settlement,
                         import_shop_analytics, import_ad_spend, import_fbt_billing,
-                        import_fbt_payment_cycle,
+                        import_fbt_payment_cycle, import_fbt_bill,
                         import_seller_shipping, import_ad_transactions)
 
 
@@ -73,7 +74,7 @@ def dashboard(request):
     # Pre-compute Net Revenue per month (for % column) and YTD Net Revenue
     nr_per_month = [monthly.get(m, {}).get('NET REVENUE') for m in months]
     ytd_nr = sum((nr or Decimal('0')) for nr in nr_per_month)
-    for label, rtype in PNL_ROW_LAYOUT:
+    for label, rtype in get_pnl_row_layout():
         if rtype == 'blank':
             rows.append({'label': '', 'type': 'blank', 'cells': [(None, None)]*12,
                          'ytd': None, 'ytd_pct': None})
@@ -114,7 +115,7 @@ def daily_view(request):
     dates = sorted(daily.keys())
     nr_per_date = [daily.get(d, {}).get('NET REVENUE') for d in dates]
     rows = []
-    for label, rtype in PNL_ROW_LAYOUT:
+    for label, rtype in get_pnl_row_layout():
         if rtype == 'blank':
             rows.append({'label': '', 'type': 'blank', 'cells': [(None, None)]*len(dates)})
             continue
@@ -154,6 +155,8 @@ def upload(request):
                 result = import_fbt_billing(f, period, f.name)
             elif kind == 'fbt_payment_cycle':
                 result = import_fbt_payment_cycle(f, f.name)
+            elif kind == 'fbt_bill':
+                result = import_fbt_bill(f, f.name)
             elif kind == 'seller_shipping':
                 result = import_seller_shipping(f, f.name)
             elif kind == 'ad_transactions':
@@ -394,7 +397,7 @@ LINE_ITEM_TO_SOURCE = {
     'Chargebacks': 'Source — Settlement',
     'Unclassified Adjustments': 'Source — Settlement',
     'Platform (Affiliate Commission)': 'Source — Settlement',
-    'Cost to Ship to FBT': 'Source — FBT Billing',
+    'Cost to Ship to FBT by Jetpack': 'Source — FBT Billing',
     'FBT Hub Placement Fee': 'Source — FBT Billing',
     'FBT Storage Fee': 'Source — FBT Billing',
     'FBT Inbound Shipping Fee': 'Source — FBT Billing',
@@ -750,7 +753,7 @@ def _build_source_sheets(wb, start_date, end_date, styles):
         created.add('Source — Monthly Inputs')
 
     # --- Source — FBT Billing (one row per month) ---
-    fbt_cols = ['Month', 'Cost to Ship to FBT', 'FBT Hub Placement Fee', 'FBT Storage Fee',
+    fbt_cols = ['Month', 'Cost to Ship to FBT by Jetpack', 'FBT Hub Placement Fee', 'FBT Storage Fee',
                 'FBT Inbound Shipping Fee', 'FBT Inbound Incidents Fee',
                 'FBT Booking Non-Compliance', 'FBT Routing Non-Compliance',
                 'FBT Outbound No-Show', 'FBT Delayed Response Fee',
@@ -783,6 +786,55 @@ def _build_source_sheets(wb, start_date, end_date, styles):
             c.font = F_TOTAL; c.fill = FILL_TOTAL
         ws.freeze_panes = 'A2'
         created.add('Source — FBT Billing')
+
+    # --- Source — FBT Bill (itemised WSF breakdown, one row per bill line) ---
+    # Display-only detail behind the `FBT Warehouse Service Fee` P&L line.
+    # Attribution is by Billing Period; Placement Period is carried through so
+    # cross-month catch-ups stay auditable (e.g. the Aug 2026 bill contains a
+    # Jul Routing Non-Compliance charge and a Jun inbound adjustment).
+    bill_qs = (FBTBillLine.objects.filter(billing_period__in=months_set)
+               .order_by('billing_period', '-amount'))
+    bill_list = list(bill_qs)
+    if bill_list:
+        ws = wb.create_sheet('Source — FBT Bill')
+        _write_header(ws,
+                      ['Billing Period', 'Placement Period', 'Type',
+                       'Business Type', 'Amount', 'Qty', 'Source File'],
+                      [14, 16, 12, 34, 14, 8, 34])
+        r = 2
+        grand = Decimal('0')
+        current_period = None
+        period_total = Decimal('0')
+        for bl in bill_list:
+            # Subtotal per billing period so each month ties to its own bill.
+            if current_period is not None and bl.billing_period != current_period:
+                ws.cell(r, 4, f'{current_period} TOTAL').font = F_TOTAL
+                c = ws.cell(r, 5, float(period_total)); c.number_format = DOLLAR
+                c.font = F_TOTAL; c.fill = FILL_TOTAL
+                r += 1
+                period_total = Decimal('0')
+            current_period = bl.billing_period
+            ws.cell(r, 1, bl.billing_period)
+            ws.cell(r, 2, bl.placement_period or '—')
+            ws.cell(r, 3, bl.entry_type or '')
+            ws.cell(r, 4, bl.business_type)
+            amt = bl.amount or Decimal('0')
+            c = ws.cell(r, 5, float(amt)); c.number_format = DOLLAR
+            ws.cell(r, 6, bl.qty if bl.qty is not None else '')
+            ws.cell(r, 7, bl.source_file or '')
+            period_total += amt
+            grand += amt
+            r += 1
+        if current_period is not None:
+            ws.cell(r, 4, f'{current_period} TOTAL').font = F_TOTAL
+            c = ws.cell(r, 5, float(period_total)); c.number_format = DOLLAR
+            c.font = F_TOTAL; c.fill = FILL_TOTAL
+            r += 1
+        ws.cell(r, 4, 'GRAND TOTAL').font = F_TOTAL
+        c = ws.cell(r, 5, float(grand)); c.number_format = DOLLAR
+        c.font = F_TOTAL; c.fill = FILL_TOTAL
+        ws.freeze_panes = 'A2'
+        created.add('Source — FBT Bill')
 
     # --- Source — Shop Analytics ---
     an_qs = AnalyticsDay.objects.filter(date__gte=start_date, date__lte=end_date).order_by('date')
@@ -1056,7 +1108,7 @@ def export_pnl(request):
             ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 16 if (i % 2 == 0) else 11
 
         excel_row = 3
-        for label, rtype in PNL_ROW_LAYOUT:
+        for label, rtype in get_pnl_row_layout():
             if rtype == 'blank':
                 ws.row_dimensions[excel_row].height = 8
                 excel_row += 1; continue
@@ -1119,7 +1171,7 @@ def export_pnl(request):
         ws.column_dimensions['C'].width = 16
 
         excel_row = 2
-        for label, rtype in PNL_ROW_LAYOUT:
+        for label, rtype in get_pnl_row_layout():
             if rtype == 'blank':
                 ws.row_dimensions[excel_row].height = 8
                 excel_row += 1; continue
@@ -1175,7 +1227,7 @@ def export_pnl(request):
             ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 11
 
         excel_row = 3
-        for label, rtype in PNL_ROW_LAYOUT:
+        for label, rtype in get_pnl_row_layout():
             if rtype == 'blank':
                 ws.row_dimensions[excel_row].height = 8
                 excel_row += 1; continue

@@ -185,7 +185,7 @@ methodology='statement_date'   methodology='order_created_date'
       <td>Monthly warehouse fees, always attribute to the month the work happened.</td>
     </tr>
     <tr>
-      <td>Cost to Ship to FBT, Team Spend, Software &amp; Tools, Monthly Retainers, Outsourced Agency, Prizes &amp; Giveaways, Off-Platform (1%), Other G&amp;A</td>
+      <td>Cost to Ship to FBT by Jetpack, Team Spend, Software &amp; Tools, Monthly Retainers, Outsourced Agency, Prizes &amp; Giveaways, Off-Platform (1%), Other G&amp;A</td>
       <td><span class="methodology method-services">Services Month</span> (flat-spread)</td>
       <td>Manual monthly recurring costs. Same "month it was for" logic in both views.</td>
     </tr>
@@ -500,7 +500,7 @@ methodology='statement_date'   methodology='order_created_date'
 <h3>Fulfillment — non-Settlement shipping costs</h3>
 
 <div class="line-item">
-  <div class="li-name">Cost to Ship to FBT <span class="badge-src badge-monthly">Monthly Input</span> <span class="methodology method-services">Services Month</span></div>
+  <div class="li-name">Cost to Ship to FBT by Jetpack <span class="badge-src badge-monthly">Monthly Input</span> <span class="methodology method-services">Services Month</span></div>
   <div class="li-from"><b>From:</b> Monthly Input <code>cost_ship_to_fbt</code> (manual — sum of Jetpack invoices for inbound stock).</div>
   <div class="li-formula"><b>Formula:</b> -1 × (monthly value ÷ days in month), applied daily.</div>
   <div class="li-why"><b>Why NOT Settlement Date:</b> this is a Jetpack (3PL) invoice you pay separately, outside TikTok's billing cycle. Documented exception per Lindsay 2026-06-26.</div>
@@ -699,7 +699,7 @@ methodology='statement_date'   methodology='order_created_date'
       <li>Aggregates <code>SettlementRow</code> by statement_date: refunds, all fees, adjustments.</li>
       <li>Overrides <em>GMV (Analytics reference)</em> from <code>AnalyticsDay</code>.</li>
       <li>Sets raw Ad Spend from <code>AdSpendDay</code>.</li>
-      <li>Flat-spreads all Monthly Input fields across their services month (FBT detail + Cost to Ship to FBT + all manual entries).</li>
+      <li>Flat-spreads all Monthly Input fields across their services month (FBT detail + Cost to Ship to FBT by Jetpack + all manual entries).</li>
       <li>Overrides Cost to Ship to Customer with per-day sums from <code>SellerShipmentCost</code> grouped by <code>shipped_date</code>.</li>
       <li>If <code>AdLedgerConfig.feed_pnl</code> is on, overlays TBSM Savings + TT Promo Credits from <code>AdLedgerDay</code>.</li>
       <li>Computes derived rows: GMV, Net Revenue, Gross Profit, Total Ad Spend, Total Marketing, Total G&amp;A, Net Profit.</li>

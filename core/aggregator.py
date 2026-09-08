@@ -10,6 +10,16 @@ from .models import Order, SettlementRow, AnalyticsDay, AdSpendDay, MonthlyInput
 
 ZERO = Decimal('0')
 
+# Prefix marking the FBT Bill breakdown rows shown beneath `FBT Warehouse
+# Service Fee`. Deeper indent than a normal '   ' row so they read as detail.
+#
+# CRITICAL: labels carrying this prefix are DISPLAY-ONLY. They itemise a cost
+# that is already captured in full by the `FBT Warehouse Service Fee` line
+# (sourced from Settlement). They must never be added to GROSS PROFIT, any
+# TOTAL row, or NET PROFIT — every total below is built from an explicit
+# whitelist of labels, so omitting them there is what keeps this safe.
+WSF_BREAKDOWN_PREFIX = '      ↳ '
+
 
 def days_in_month(yyyy_mm):
     y, m = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
@@ -277,7 +287,9 @@ def _compute_daily_pnl_impl(start_date, end_date, methodology='statement_date'):
     #
     #   NON_FBT_OVERLAY: stays flat-spread across the SERVICES month (current
     #   behavior). These are manual entries with no statement-date concept,
-    #   and Cost to Ship to FBT which comes from Jetpack invoices not TikTok.
+    #   and Cost to Ship to FBT by Jetpack which comes from Jetpack invoices
+    #   not TikTok. (TikTok's own inbound charge lives inside the Settlement
+    #   FBT Warehouse Service Fee — see WSF_BREAKDOWN_PREFIX.)
     #
     #   FBT_OVERLAY: 12 TikTok-billed FBT detail lines (Hub Placement, Storage,
     #   etc.). When an FBTBillingSchedule exists for a services month, these
@@ -297,7 +309,7 @@ def _compute_daily_pnl_impl(start_date, end_date, methodology='statement_date'):
         '   Off-Platform (1% method)': ('off_platform_1pct', -1),
         '   Other G&A': ('other_ga', -1),
         '   Less: TT Promo Credits': ('tt_promo_credits', +1),
-        '   Cost to Ship to FBT': ('cost_ship_to_fbt', -1),
+        '   Cost to Ship to FBT by Jetpack': ('cost_ship_to_fbt', -1),
     }
     FBT_OVERLAY = {
         '   FBT Hub Placement Fee': ('fbt_hub_placement', -1),
@@ -341,6 +353,35 @@ def _compute_daily_pnl_impl(start_date, end_date, methodology='statement_date'):
         services_periods_needed.add(dest_mkey)
     mi_map = {mi.month: mi for mi in MonthlyInput.objects.filter(month__in=services_periods_needed)}
 
+    # ---- FBT Bill breakdown (DISPLAY ONLY — never enters a total) ----
+    # Itemises what TikTok bundles into the single Settlement line
+    # `FBT Warehouse Service Fee`. Confirmed by TikTok (Jocelyn Zeng,
+    # 2026-09-01) that the WSF includes storage / inbound shipping / hub
+    # placement / incidents / VAS.
+    #
+    # Attribution is by BILLING period, not order-placement period: Settlement
+    # books the whole bill on statement dates inside the billing month, so
+    # attributing by billing month keeps the breakdown tied to the total it
+    # explains. One bill can carry catch-ups from earlier placement periods
+    # (the Aug 2026 bill holds a Jul Routing Non-Compliance charge and a Jun
+    # inbound adjustment) — those still land in Aug. Because a business type
+    # can therefore appear more than once per bill, amounts are SUMMED per
+    # (billing_period, business_type).
+    #
+    # These labels are NOT in the GROSS PROFIT / TOTAL whitelists below, so
+    # they can never affect a computed total. They are pure explanation.
+    from .models import FBTBillLine as _BillLine
+    bill_map = {}  # billing_period → {display_label: summed amount}
+    for _bl in _BillLine.objects.all():
+        _lbl = f'{WSF_BREAKDOWN_PREFIX}{_bl.business_type}'
+        _per = bill_map.setdefault(_bl.billing_period, {})
+        _per[_lbl] = _per.get(_lbl, ZERO) + (_bl.amount or ZERO)
+    # The row layout is the UNION of business types across every uploaded bill
+    # (so the 12-month dashboard keeps consistent rows). Zero-fill each month's
+    # missing types so a fee that simply didn't occur reads as 0.00 rather than
+    # blank — matching how every other P&L row behaves.
+    all_bill_labels = {lbl for per in bill_map.values() for lbl in per}
+
     for d in dates:
         dest_mkey = f'{d.year:04d}-{d.month:02d}'
         dim = days_in_month(dest_mkey)
@@ -365,6 +406,15 @@ def _compute_daily_pnl_impl(start_date, end_date, methodology='statement_date'):
             for label, (field, sign) in FBT_OVERLAY.items():
                 val = getattr(mi_for_day, field) or ZERO
                 result[d][label] = Decimal(sign) * val / dim
+
+        # ---- FBT Bill breakdown: flat-spread across the billing month ----
+        # Display-only detail beneath FBT Warehouse Service Fee. Negative
+        # (a cost) to match the sign convention of every other FBT line.
+        if all_bill_labels:
+            bill_for_month = bill_map.get(dest_mkey, {})
+            for label in all_bill_labels:
+                amt = bill_for_month.get(label, ZERO)
+                result[d][label] = -amt / dim
 
     # Seller-shipping per-day override for Cost to Ship to Customer.
     # Cost = postage + per_pack + per_pick (the full 3PL line item per shipment).
@@ -420,7 +470,7 @@ def _compute_daily_pnl_impl(start_date, end_date, methodology='statement_date'):
                     # '   Seller Shipping Fee Discount' removed 2026-06-30 — its
                     # value is already baked into the NET Customer-Paid Shipping
                     # Fee column. Including it double-counted the seller portion.
-                    '   Cost to Ship to FBT', '   Cost to Ship to Customer',
+                    '   Cost to Ship to FBT by Jetpack', '   Cost to Ship to Customer',
                     '   Logistics Reimbursement',
                     '   FBT Hub Placement Fee', '   FBT Storage Fee',
                     '   FBT Inbound Shipping Fee', '   FBT Inbound Incidents Fee',
@@ -503,7 +553,7 @@ PNL_ROW_LAYOUT = [
     ('   Customer-Paid Shipping Refund', 'row'),
     # Seller Shipping Fee Discount removed 2026-06-30 — was double-counting the
     # seller portion already included in net Customer-Paid Shipping Fee.
-    ('   Cost to Ship to FBT', 'row'),
+    ('   Cost to Ship to FBT by Jetpack', 'row'),
     ('   Cost to Ship to Customer', 'row'),
     ('   Logistics Reimbursement', 'row'),
     ('   FBT Hub Placement Fee', 'row'),
@@ -557,3 +607,37 @@ PNL_ROW_LAYOUT = [
     ('', 'blank'),
     ('NET PROFIT', 'total'),
 ]
+
+
+def get_wsf_breakdown_labels():
+    """Display labels for the FBT Bill breakdown, largest charge first.
+
+    Derived from whatever has actually been uploaded, so a month with no bill
+    simply contributes no rows. Returns [] when nothing has been uploaded,
+    in which case the P&L renders exactly as it did before this feature.
+    """
+    from .models import FBTBillLine
+    rows = (FBTBillLine.objects
+            .values('business_type')
+            .annotate(total=Sum('amount'))
+            .order_by('-total'))
+    return [f'{WSF_BREAKDOWN_PREFIX}{r["business_type"]}' for r in rows]
+
+
+def get_pnl_row_layout():
+    """PNL_ROW_LAYOUT with the FBT Bill breakdown spliced in beneath
+    `FBT Warehouse Service Fee`.
+
+    Kept as a function (not a module constant) because the breakdown rows
+    depend on uploaded data, which changes at runtime. Falls back to the
+    unmodified static layout when no bills exist.
+    """
+    labels = get_wsf_breakdown_labels()
+    if not labels:
+        return PNL_ROW_LAYOUT
+    out = []
+    for entry in PNL_ROW_LAYOUT:
+        out.append(entry)
+        if entry[0] == '   FBT Warehouse Service Fee':
+            out.extend((lbl, 'row') for lbl in labels)
+    return out

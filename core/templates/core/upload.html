@@ -95,6 +95,17 @@
       <button class="btn btn-primary btn-sm" type="submit">Upload</button>
     </form>
   </div>
+
+  <div class="col-md-6 col-lg-4">
+    <form method="post" enctype="multipart/form-data" class="card p-3">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="fbt_bill">
+      <h5>8. FBT Bill (WSF breakdown)</h5>
+      <small class="text-muted mb-2">xlsx from FBT portal → Bill → Download. Itemises what TikTok bundles into <em>FBT Warehouse Service Fee</em> (storage, inbound delivery, hub placement, incidents, VAS) — confirmed by TikTok 2026-09-01. Shown as indented detail under that line. <strong>Display-only: never added to any total</strong>, the Settlement figure stays authoritative. Billing month is read from the file, so no period needed — just upload one bill per month.</small>
+      <input type="file" name="file" accept=".xlsx" class="form-control mb-2" required>
+      <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+    </form>
+  </div>
 </div>
 
 <h4 class="mt-4">Recent uploads</h4>

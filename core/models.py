@@ -211,6 +211,59 @@ class FBTBillingSchedule(models.Model):
         return f'{self.period} → {self.statement_date} (${self.amount})'
 
 
+class FBTBillLine(models.Model):
+    """One row from the FBT portal 'Bill' export (1_Breakdown sheet).
+
+    This is the itemised breakdown of what TikTok bundles into the single
+    Settlement line 'FBT warehouse service fee using GMV payment' (which the
+    aggregator surfaces as `FBT Warehouse Service Fee`, sourced from
+    SettlementRow.fbt_warehouse).
+
+    Confirmed by TikTok (Jocelyn Zeng, 2026-09-01): the warehouse service fee
+    DOES include storage fee, inbound shipping fee, hub placement fee and the
+    rest of the warehousing / incidents / VAS categories.
+
+    These rows are therefore **display-only** — they explain the WSF total, they
+    are NOT added to any P&L total. See aggregator.WSF_BREAKDOWN_PREFIX.
+
+    Attribution: by `billing_period` (not placement_period), because Settlement
+    books the whole bill on statement dates inside the billing month. A single
+    bill can carry catch-ups from earlier placement periods (e.g. the August
+    2026 bill contains a July Routing Non-Compliance charge and a June inbound
+    adjustment); those still land in August so the breakdown ties to the total.
+    `placement_period` is retained for audit and shown on the Source sheet.
+
+    Supplements (does not replace) the Logistics Cost Overview → MonthlyInput
+    path. The Bill carries the real inbound number where the Logistics Cost
+    Overview reports 'Inbound shipping fee' as $0, so both are kept for
+    cross-checking.
+    """
+    billing_period = models.CharField(
+        max_length=7, db_index=True,
+        help_text='Billing month in YYYY-MM format (e.g. "2026-08") — parsed from the file')
+    placement_period = models.CharField(
+        max_length=7, blank=True,
+        help_text='Order placement month in YYYY-MM. Blank when the file has no value.')
+    entry_type = models.CharField(
+        max_length=32, blank=True, help_text='"Payment" or "Adjustment"')
+    business_type = models.CharField(
+        max_length=128, help_text='Fee name verbatim from the Bill, e.g. "Inbound Domestic Delivery Fee"')
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0,
+                                 help_text='Positive magnitude as printed on the bill')
+    qty = models.IntegerField(null=True, blank=True)
+    source_file = models.CharField(max_length=255, blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Idempotent re-upload: same bill uploaded twice updates in place.
+        unique_together = [('billing_period', 'placement_period', 'entry_type', 'business_type')]
+        ordering = ['billing_period', '-amount']
+        indexes = [models.Index(fields=['billing_period'])]
+
+    def __str__(self):
+        return f'{self.billing_period} {self.business_type} ${self.amount}'
+
+
 class MonthlyInputAudit(models.Model):
     """One row per field-change on MonthlyInput. Lets us show 'what was changed when' history."""
     month = models.CharField(max_length=7, db_index=True)
