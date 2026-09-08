@@ -20,6 +20,56 @@ ZERO = Decimal('0')
 # whitelist of labels, so omitting them there is what keeps this safe.
 WSF_BREAKDOWN_PREFIX = '      ↳ '
 
+# From this month onward the 12 FBT detail lines (Hub Placement, Storage,
+# Inbound Shipping, Incidents, Booking/Routing Non-Compliance, No-Show, Delayed
+# Response, Disposal, Return Shipping, Return-to-Seller Handling, Inbound Return
+# Operation) are NO LONGER booked to the P&L.
+#
+# Why: TikTok confirmed (Jocelyn Zeng, 2026-09-01) that the Settlement line
+# "FBT warehouse service fee using GMV payment" already bundles all of them.
+# Booking them again from the Logistics Cost Overview double-counted the cost.
+# From the cutoff, `FBT Warehouse Service Fee` is the single source of truth and
+# the FBT Bill breakdown (WSF_BREAKDOWN_PREFIX rows) provides the itemisation.
+#
+# Applied across all history. Coverage was verified month by month before
+# widening it — sum of the 12 lines vs WSF, and the headroom between them:
+#     Mar  -2,199 vs  -5,125   +2,926  covered
+#     Apr  -4,575 vs  -3,662     -914  SHORT (see below)
+#     May  -5,087 vs  -5,759     +672  covered
+#     Jun  -2,448 vs  -6,659   +4,211  covered
+#     Jul  -3,234 vs  -5,277   +2,042  covered
+#     Aug  -4,640 vs -11,510   +6,869  covered
+#     Jan-Jun aggregate: -19,669 vs -22,968  +3,299  covered
+#     Mar-Aug aggregate: -22,184 vs -37,991 +15,807  covered
+#
+# April is the one month where WSF alone doesn't cover the itemised fees, short
+# by $914. Almost certainly a settlement-timing split rather than a real gap:
+# May carries $672 of headroom immediately after, and every aggregate window is
+# comfortably covered. The practical effect is that April in isolation reads
+# ~$914 better than a strict services-month view would, offset in adjacent
+# months. Flagged here so nobody re-derives it from scratch later.
+#
+# The MonthlyInput fields and the Logistics Cost Overview upload are retained:
+# they still populate `Source — FBT Billing` for cross-checking against the Bill.
+FBT_OVERLAY_CUTOFF = '2026-01'
+
+# The 12 P&L labels gated by FBT_OVERLAY_CUTOFF. Kept as a module constant so
+# the layout builder and the daily compute agree on exactly which rows retire.
+FBT_OVERLAY_LABELS = (
+    '   FBT Hub Placement Fee',
+    '   FBT Storage Fee',
+    '   FBT Inbound Shipping Fee',
+    '   FBT Inbound Incidents Fee',
+    '   FBT Booking Non-Compliance',
+    '   FBT Routing Non-Compliance',
+    '   FBT Outbound No-Show',
+    '   FBT Delayed Response Fee',
+    '   FBT Disposal Fee',
+    '   FBT Return Shipping (VAS)',
+    '   FBT Return to Seller Handling',
+    '   FBT Inbound Return Operation',
+)
+
 
 def days_in_month(yyyy_mm):
     y, m = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
@@ -402,7 +452,10 @@ def _compute_daily_pnl_impl(start_date, end_date, methodology='statement_date'):
         # own billing period grouping. FBTBillingSchedule table + Payment
         # Cycle upload are still in the codebase in case we ever need to
         # switch back, but they no longer drive attribution.
-        if mi_for_day:
+        # Retired from FBT_OVERLAY_CUTOFF onward — the Settlement WSF line
+        # already contains these. Simply not populating the labels removes them
+        # from every total, because each total sums via row.get(label, ZERO).
+        if mi_for_day and dest_mkey < FBT_OVERLAY_CUTOFF:
             for label, (field, sign) in FBT_OVERLAY.items():
                 val = getattr(mi_for_day, field) or ZERO
                 result[d][label] = Decimal(sign) * val / dim
@@ -624,20 +677,44 @@ def get_wsf_breakdown_labels():
     return [f'{WSF_BREAKDOWN_PREFIX}{r["business_type"]}' for r in rows]
 
 
-def get_pnl_row_layout():
-    """PNL_ROW_LAYOUT with the FBT Bill breakdown spliced in beneath
-    `FBT Warehouse Service Fee`.
+def get_pnl_row_layout(months=None):
+    """PNL_ROW_LAYOUT adjusted for what's actually being displayed.
 
-    Kept as a function (not a module constant) because the breakdown rows
-    depend on uploaded data, which changes at runtime. Falls back to the
-    unmodified static layout when no bills exist.
+    Two adjustments:
+
+    1. The FBT Bill breakdown is spliced in beneath `FBT Warehouse Service Fee`.
+       Kept as a function (not a module constant) because those rows depend on
+       uploaded data, which changes at runtime.
+
+    2. The 12 retired FBT detail rows are DROPPED when every month being
+       displayed is at/after FBT_OVERLAY_CUTOFF — they'd be all-zero noise
+       there. They're KEPT whenever any displayed month predates the cutoff,
+       so historical figures still render.
+
+    months: iterable of months being displayed. Accepts either 'YYYY-MM'
+    strings or (year, month) tuples — call sites use both shapes. Anything
+    unrecognised is treated as pre-cutoff, so an unexpected type can only ever
+    keep rows, never hide them. When omitted the rows are kept, which is the
+    safe default (never hides real data).
     """
-    labels = get_wsf_breakdown_labels()
-    if not labels:
-        return PNL_ROW_LAYOUT
+    def _as_key(m):
+        if isinstance(m, str):
+            return m
+        if isinstance(m, (tuple, list)) and len(m) == 2:
+            try:
+                return f'{int(m[0]):04d}-{int(m[1]):02d}'
+            except (TypeError, ValueError):
+                return ''
+        return ''
+
     out = []
+    drop_overlay = bool(months) and all(
+        _as_key(m) >= FBT_OVERLAY_CUTOFF and _as_key(m) for m in months)
+    labels = get_wsf_breakdown_labels()
     for entry in PNL_ROW_LAYOUT:
+        if drop_overlay and entry[0] in FBT_OVERLAY_LABELS:
+            continue
         out.append(entry)
-        if entry[0] == '   FBT Warehouse Service Fee':
+        if labels and entry[0] == '   FBT Warehouse Service Fee':
             out.extend((lbl, 'row') for lbl in labels)
     return out

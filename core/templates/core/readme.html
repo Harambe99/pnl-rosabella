@@ -523,11 +523,11 @@ methodology='statement_date'   methodology='order_created_date'
 <h3>FBT Detail (12 lines) — Services Month attribution</h3>
 
 <div class="line-item">
-  <div class="li-name">FBT Hub Placement / Storage / Inbound Shipping / Incidents / Booking N/C / Routing N/C / Outbound No-Show / Delayed Response / Disposal / Return Shipping (VAS) / Return-to-Seller Handling / Inbound Return Operation <span class="badge-src badge-fbt">FBT Billing</span> <span class="methodology method-services">Services Month</span></div>
-  <div class="li-from"><b>From:</b> FBT Billing XLSX. Each row's line description maps to one of 12 MonthlyInput fields per period.</div>
-  <div class="li-formula"><b>Formula:</b> -1 × (MonthlyInput.fbt_X ÷ days in services month), applied to every day of the services month.</div>
-  <div class="li-why"><b>Services Month per Jack 2026-07-01</b> — Jack reads the P&amp;L side-by-side with TikTok's FBT portal billing period grouping. The Payment Cycle / statement-date methodology (2026-06-26 to 2026-07-01) was reverted because it shifted values one month forward.</div>
-  <div class="li-watch">Re-uploading FBT Billing for the same period OVERWRITES all 12 fields for that month.</div>
+  <div class="li-name">FBT Hub Placement / Storage / Inbound Shipping / Incidents / Booking N/C / Routing N/C / Outbound No-Show / Delayed Response / Disposal / Return Shipping (VAS) / Return-to-Seller Handling / Inbound Return Operation <span class="badge-src badge-fbt">FBT Billing</span> <span class="methodology method-services">RETIRED 2026-09-08</span></div>
+  <div class="li-why"><b>These 12 rows no longer appear on the P&amp;L.</b> TikTok confirmed (Jocelyn Zeng, 2026-09-01) that the Settlement line <em>"FBT warehouse service fee using GMV payment"</em> already bundles storage, inbound shipping, hub placement and the rest of the warehousing / incidents / VAS categories. Booking them again from the Logistics Cost Overview double-counted the cost.</div>
+  <div class="li-formula"><b>Replaced by:</b> <em>FBT Warehouse Service Fee</em> (Settlement) is now the single source of truth for these costs, with the itemised breakdown shown beneath it as indented <code>↳</code> rows sourced from the FBT portal <em>Bill</em> export (upload card 8). Those breakdown rows are display-only and never enter a total.</div>
+  <div class="li-from"><b>Data retained:</b> the Logistics Cost Overview upload still populates the 12 MonthlyInput fields and the <em>Source — FBT Billing</em> sheet, so it stays available as a cross-check against the Bill. It simply no longer feeds the P&amp;L.</div>
+  <div class="li-watch">Applied across all of 2026 (<code>FBT_OVERLAY_CUTOFF = '2026-01'</code>). Coverage was verified per month — WSF exceeds the sum of the 12 lines everywhere except April in isolation, which is short by $914 and is almost certainly a settlement-timing split (May carries $672 of headroom immediately after, and every multi-month window is covered).</div>
 </div>
 
 <div class="line-item">
@@ -539,7 +539,8 @@ methodology='statement_date'   methodology='order_created_date'
 <div class="line-item">
   <div class="li-name">FBT Warehouse Service Fee <span class="badge-src badge-settle">Settlement</span> <span class="methodology method-stmt">Statement Date</span></div>
   <div class="li-from"><b>From:</b> Settlement adjustment rows where Type contains "FBT warehouse service fee using GMV payments".</div>
-  <div class="li-why">In-warehouse fees TikTok charges for FBT services. Distinct from the FBT Storage Fee in FBT Billing.</div>
+  <div class="li-why">All in-warehouse fees TikTok charges for FBT services, as a single bundled figure. Confirmed by TikTok (Jocelyn Zeng, 2026-09-01) to include storage fee, inbound shipping fee, hub placement fee, incidents and VAS charges — which is why the 12 separate FBT detail rows were retired on 2026-09-08. <b>This is the single source of truth for FBT warehouse cost.</b></div>
+  <div class="li-formula"><b>Breakdown:</b> the indented <code>↳</code> rows beneath this line itemise it, sourced from the FBT portal <em>Bill</em> export (upload card 8), attributed by billing period. They are <b>display-only and never added to any total</b> — the figure above already contains them. Expect a small residual gap between the bundle and the sum of its parts (Aug 2026: $11,509.65 vs $11,190.03, a $320 settlement-timing difference); no reconciling plug row is inserted.</div>
 </div>
 
 <h3>Platform Fees</h3>

@@ -74,7 +74,7 @@ def dashboard(request):
     # Pre-compute Net Revenue per month (for % column) and YTD Net Revenue
     nr_per_month = [monthly.get(m, {}).get('NET REVENUE') for m in months]
     ytd_nr = sum((nr or Decimal('0')) for nr in nr_per_month)
-    for label, rtype in get_pnl_row_layout():
+    for label, rtype in get_pnl_row_layout(months):
         if rtype == 'blank':
             rows.append({'label': '', 'type': 'blank', 'cells': [(None, None)]*12,
                          'ytd': None, 'ytd_pct': None})
@@ -115,7 +115,7 @@ def daily_view(request):
     dates = sorted(daily.keys())
     nr_per_date = [daily.get(d, {}).get('NET REVENUE') for d in dates]
     rows = []
-    for label, rtype in get_pnl_row_layout():
+    for label, rtype in get_pnl_row_layout([f'{d.year:04d}-{d.month:02d}' for d in dates]):
         if rtype == 'blank':
             rows.append({'label': '', 'type': 'blank', 'cells': [(None, None)]*len(dates)})
             continue
@@ -1108,7 +1108,7 @@ def export_pnl(request):
             ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 16 if (i % 2 == 0) else 11
 
         excel_row = 3
-        for label, rtype in get_pnl_row_layout():
+        for label, rtype in get_pnl_row_layout(months):
             if rtype == 'blank':
                 ws.row_dimensions[excel_row].height = 8
                 excel_row += 1; continue
@@ -1171,7 +1171,7 @@ def export_pnl(request):
         ws.column_dimensions['C'].width = 16
 
         excel_row = 2
-        for label, rtype in get_pnl_row_layout():
+        for label, rtype in get_pnl_row_layout([yyyy_mm]):
             if rtype == 'blank':
                 ws.row_dimensions[excel_row].height = 8
                 excel_row += 1; continue
@@ -1227,7 +1227,7 @@ def export_pnl(request):
             ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 11
 
         excel_row = 3
-        for label, rtype in get_pnl_row_layout():
+        for label, rtype in get_pnl_row_layout([yyyy_mm]):
             if rtype == 'blank':
                 ws.row_dimensions[excel_row].height = 8
                 excel_row += 1; continue
